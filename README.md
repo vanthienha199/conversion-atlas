@@ -22,24 +22,14 @@ python3 server.py ~/repos/serv/tlv/serv_aligner
 Open http://127.0.0.1:8765. That's it. No dependencies beyond Python 3.8+,
 no npm, no build step, read-only against your files.
 
-## Two modes, two layouts
+## Two views
 
-- **Explore** (default): an engineer's workbench across ALL scanned modules.
-  Task-grouped history timeline on the left; tabs for side-by-side diff,
-  files, the prompt the agent followed, status metadata, tracker report, and
-  Claude Code transcripts. This is the debugging view for the conversion team.
-- **Lesson**: a Codecademy-style guided replay (instructions left, dark diff
-  editor middle, verification terminal right, Back/Next at the bottom) for
-  modules that ship a walkthrough in `guides/`.
-
-## Guided lessons
-
-`guides/<module>.json` holds a hand-written, beginner-friendly walkthrough for a
-module: an intro plus a "what happened and why" narrative per step, shown in the
-Learn panel above the raw agent instructions. `serv_aligner` (the smallest SERV
-module, 15 steps) ships as the first guided lesson and is the recommended
-starting point. Modules without a guide fall back to showing the raw task
-instructions.
+- **Explore** (default): the working view across all scanned modules.
+  Task-grouped history timeline on the left with a difficulty profile; tabs for
+  side-by-side diff, files, the prompt the agent followed, status metadata,
+  tracker, and agent transcripts. This is the debugging view for the team.
+- **Guide**: how to use the tool and how the conversion flow works, for someone
+  opening it for the first time. TL-Verilog learning material lives separately.
 
 ## What it shows
 
