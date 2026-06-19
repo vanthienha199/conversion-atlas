@@ -755,3 +755,11 @@ mark { padding: 0 1px; }
 
 .guide-foot { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); }
 .guide-foot p { font-size: 0.95rem; color: var(--faint); }
+
+/* failed-step hint + jump-to-fix */
+.fail-hint {
+  margin-top: 12px; background: #fdeceb; border: 1px solid #f3b6b3;
+  border-left: 3px solid var(--red); border-radius: 8px;
+  padding: 9px 13px; font-size: 0.9rem; color: var(--red-dk); line-height: 1.55;
+}
+.fail-hint .btn-mini { margin-left: 4px; vertical-align: baseline; }

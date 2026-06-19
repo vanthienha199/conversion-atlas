@@ -319,6 +319,45 @@ function renderExTimeline() {
   if (act) act.scrollIntoView({ block: "nearest" });
 }
 
+function nextPassingStep() {
+  const d = state.detail;
+  for (let i = state.stepIdx + 1; i < d.steps.length; i++) {
+    if (stepStatus(d.steps[i]).state === "ok") return d.steps[i];
+  }
+  return null;
+}
+
+function failHint(code) {
+  if (code === 2) return "This step did not compile: SandPiper rejected the TL-Verilog.";
+  if (code === 3) return "This step compiled but failed formal equivalence against the previous step.";
+  if (code === 4) return "This step passed the incremental check but failed full equivalence against the original Verilog.";
+  return "This step did not pass FEV.";
+}
+
+async function showFixDiff(np) {
+  if (!np) return;
+  const d = state.detail, s = curStep();
+  const files = s.files && s.files.length ? s.files : d.root_files;
+  const file = files.includes("wip.tlv") ? "wip.tlv"
+    : (state.file && files.includes(state.file) ? state.file : defaultFile(files));
+  state.exTab = "diff";
+  renderExTabs();
+  const p = $("#ex-panel");
+  p.innerHTML = `
+    <div class="panel-toolbar diff-toolbar">
+      <span class="diff-summary">Why it failed: <b>step ${s.n}</b> (✗) compared with the fix at <b>step ${np.n}</b> (✓)</span>
+      <button class="btn-mini" id="ex-fix-back">← back to this step</button>
+    </div>
+    <div id="ex-diff-host"><div class="note">loading…</div></div>`;
+  $("#ex-fix-back").onclick = () => renderExPanel();
+  try {
+    const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: file, b_step: np.key, b_name: file });
+    renderSxS($("#ex-diff-host"), dj.rows, `step ${s.n} · ${file} (failed)`, `step ${np.n} · ${file} (fix)`);
+  } catch (e) {
+    $("#ex-diff-host").innerHTML = `<div class="note">${esc(e.message)}</div>`;
+  }
+}
+
 function renderExBanner() {
   const d = state.detail, s = curStep();
   if (!s) return;
@@ -330,6 +369,13 @@ function renderExBanner() {
     : `<span class="badge ok" title="Proven equivalent by formal verification">✓ FEV verified</span>`;
   if (s.duration) badges += `<span class="badge info">took ${esc(s.duration)}</span>`;
   if (s.model) badges += `<span class="badge info">${esc(s.model)}</span>`;
+  let failBlock = "";
+  if (st.state === "fail") {
+    const np = nextPassingStep();
+    failBlock = `<div class="fail-hint"><b>${esc(failHint(st.code))}</b> ` +
+      (np ? `The agent kept working from here. Compare with the fix to see what changed. <button class="btn-mini" id="ex-fix">⤳ diff vs the fix (step ${np.n})</button>`
+          : `No later passing checkpoint to compare against.`) + `</div>`;
+  }
   $("#ex-banner").innerHTML = `
     <div class="step-banner">
       <div class="sb-top">
@@ -339,7 +385,10 @@ function renderExBanner() {
         ${s.task ? `<span class="sb-pos">· ${esc(s.task)}</span>` : ""}
       </div>
       ${s.llm ? `<div class="hint"><b>AI note:</b> ${esc(s.llm)}</div>` : ""}
+      ${failBlock}
     </div>`;
+  const fb = $("#ex-fix");
+  if (fb) fb.onclick = () => showFixDiff(nextPassingStep());
 }
 
 const EXTABS = [
