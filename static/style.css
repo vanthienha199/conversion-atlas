@@ -692,3 +692,10 @@ mark { padding: 0 1px; }
 .tl-group-head .cnt.heat1, .tl-group-head .cnt.heat2,
 .tl-group-head .cnt.heat3 { color: #7a3d00; }
 .tl-group-head .cnt.heat4 { color: #fff; }
+
+/* per-checkpoint FEV status */
+.tl-step.fail .ic { border-color: var(--red); color: var(--red); background: #fdeceb; }
+.tl-step.none .ic { border-color: var(--line); color: var(--faint); background: transparent; }
+.tl-group-head .cnt.fails { color: var(--red-dk); font-weight: 700; margin-left: auto; }
+.tl-group-head .cnt.fails + .cnt { margin-left: 6px; }
+.terminal .t-explain.err { background: #1a0d0d; border-color: #5a2230; color: #f3b6b6; }

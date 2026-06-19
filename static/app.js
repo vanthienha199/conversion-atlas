@@ -241,12 +241,14 @@ function renderInstructions() {
   const intro = `<p style="margin-top:0">The AI completed this task in <b>${grp.items.length}</b> verified step${grp.items.length === 1 ? "" : "s"}. Click one to inspect it.</p>`;
   body.innerHTML = intro + grp.items.map(({ s, idx }, i) => {
     const active = idx === state.stepIdx;
-    const sub = [s.duration ? "took " + s.duration : null, s.model || null, s.by === "human" ? "human edit" : null]
-      .filter(Boolean).join(" · ") || "formally verified";
+    const st = stepStatus(s);
+    const sub = st.state === "fail" ? "FEV failed: " + st.label
+      : ([s.duration ? "took " + s.duration : null, s.model || null, s.by === "human" ? "human edit" : null]
+        .filter(Boolean).join(" · ") || "formally verified");
     const title = `${i + 1}. Step ${s.n} of ${d.steps.length}`;
     const noteTxt = s.llm ? `<div class="ck-sub">${esc(s.llm.length > 110 ? s.llm.slice(0, 110) + "…" : s.llm)}</div>` : "";
-    return `<button class="ckpt pass ${active ? "active" : ""} ${idx > state.stepIdx ? "dim" : ""}" data-idx="${idx}">
-      <span class="box">✓</span>
+    return `<button class="ckpt ${st.state === "fail" ? "fail" : "pass"} ${active ? "active" : ""} ${idx > state.stepIdx ? "dim" : ""}" data-idx="${idx}">
+      <span class="box">${st.state === "fail" ? "✗" : "✓"}</span>
       <span class="ck-text"><div class="ck-title">${esc(title)}</div><div class="ck-sub">${esc(sub)}</div>${noteTxt}</span>
     </button>`;
   }).join("");
@@ -430,7 +432,17 @@ function termLines(s) {
     lines.push(["t-explain ok", "Yosys proved this modification equivalent to the previous version. ✓"]);
     return lines;
   }
+  const st = stepStatus(s);
   lines.push(["t-cmd", "./scripts/fev.sh"]);
+  if (st.state === "fail") {
+    lines.push(["t-err", `fev.sh exit ${st.code}: ${st.label}`]);
+    lines.push(["t-explain err", "This checkpoint did not pass. The agent kept working from here, so compare it with the next checkpoint to see the fix."]);
+    return lines;
+  }
+  if (st.state === "none") {
+    lines.push(["t-meta", "no FEV result recorded at this checkpoint (setup or pending)"]);
+    return lines;
+  }
   lines.push(["t-ok", "SandPiper compile ............. OK"]);
   lines.push(["t-ok", "incremental FEV vs previous ... PASS"]);
   lines.push(["t-ok", "full FEV vs original Verilog .. PASS"]);
@@ -459,32 +471,50 @@ function runTerminal(replay) {
   }, 140);
 }
 
+function stepStatus(s) {
+  const raw = s.fev;
+  if (raw == null || raw === "" || raw === "none") return { state: "none", label: "no FEV recorded" };
+  const m = String(raw).match(/^\s*(\d+)\s*:\s*(.*)$/);
+  if (!m) return { state: "ok", label: String(raw) };
+  const code = +m[1], reason = m[2] || String(raw);
+  return code === 0 ? { state: "ok", label: reason } : { state: "fail", code, label: reason };
+}
+
+function passCount() {
+  return steps().filter((s) => stepStatus(s).state === "ok").length;
+}
+
 function renderExHeader() {
   const d = state.detail, m = d.module;
   const parts = m.name.split("_");
   const title = parts.length > 1
     ? `${esc(parts[0])}_<em>${esc(parts.slice(1).join("_"))}</em>`
     : esc(m.name);
+  const complete = (d.root_files || []).includes("CONVERSION_COMPLETE.md");
+  const ok = passCount(), total = d.steps.length;
+  const stateChip = complete
+    ? `<span class="chip ok">✓ Conversion complete</span>`
+    : `<span class="chip">in progress · ${ok}/${total} checkpoints passed FEV</span>`;
   $("#ex-header").innerHTML = `
     <div class="mh-eyebrow">${esc(m.root)} / ${esc(m.rel)}</div>
     <h2 class="mh-title">${title}</h2>
     <div class="mh-chips">
       <span class="chip">${m.flavor === "gen1" ? "Gen 1 · prompt flow" : "Gen 2 · agentic flow"}</span>
-      <span class="chip">${d.steps.length} verified checkpoints · ${d.task_lanes.length} tasks</span>
-      <span class="chip ok">✓ Conversion complete</span>
+      <span class="chip">${total} checkpoints · ${d.task_lanes.length} tasks</span>
+      ${stateChip}
     </div>`;
 }
 
-function heatLevel(n) {
-  if (n >= 20) return 4;
-  if (n >= 11) return 3;
-  if (n >= 6) return 2;
-  if (n >= 3) return 1;
+function heatLevel(fails) {
+  if (fails >= 10) return 4;
+  if (fails >= 6) return 3;
+  if (fails >= 3) return 2;
+  if (fails >= 1) return 1;
   return 0;
 }
 
-function groupFev(grp) {
-  return grp.items.reduce((a, it) => a + (Number(it.s.fev_cnt) || 0), 0);
+function groupFails(grp) {
+  return grp.items.filter((it) => stepStatus(it.s).state === "fail").length;
 }
 
 function renderDifficulty(groups) {
@@ -493,12 +523,11 @@ function renderDifficulty(groups) {
   const max = Math.max(1, ...groups.map((g) => g.items.length));
   const activeGi = groups.findIndex((g) => g.items.some((it) => it.idx === state.stepIdx));
   host.innerHTML = `<div class="diff-bars">` + groups.map((g, gi) => {
-    const n = g.items.length, lvl = heatLevel(n);
-    const fev = groupFev(g);
-    const tip = `${g.task || "task"}: ${n} checkpoint${n === 1 ? "" : "s"}${fev ? `, ${fev} FEV attempts` : ""}`;
+    const n = g.items.length, fails = groupFails(g), lvl = heatLevel(fails);
+    const tip = `${g.task || "task"}: ${n} checkpoint${n === 1 ? "" : "s"}, ${fails} failed FEV`;
     return `<button class="diff-bar heat${lvl}${gi === activeGi ? " on" : ""}" data-gi="${gi}" title="${esc(tip)}"
       style="height:${Math.max(12, Math.round((n / max) * 100))}%"><span class="db-n">${n}</span></button>`;
-  }).join("") + `</div><div class="diff-legend">checkpoints per task: taller and warmer means the agent struggled there</div>`;
+  }).join("") + `</div><div class="diff-legend">bar height is checkpoints per task; warmer means more FEV failures, where the agent struggled</div>`;
   host.querySelectorAll(".diff-bar").forEach((b) => {
     b.onclick = () => gotoStep(groups[+b.dataset.gi].items[0].idx);
   });
@@ -509,23 +538,26 @@ function renderExTimeline() {
   tl.innerHTML = "";
   const groups = taskGroups();
   renderDifficulty(groups);
+  const icon = { ok: "✓", fail: "✗", none: "•" };
   groups.forEach((grp) => {
     const hasActive = grp.items.some((it) => it.idx === state.stepIdx);
-    const lvl = heatLevel(grp.items.length);
+    const fails = groupFails(grp), lvl = heatLevel(fails);
     const div = document.createElement("div");
     div.className = "tl-group" + (hasActive ? " open" : "");
     const head = document.createElement("button");
     head.className = "tl-group-head heat" + lvl + (hasActive ? " has-active" : "");
-    head.innerHTML = `<span class="tw">▶</span><span>${esc(grp.task || "…")}</span><span class="cnt heat${lvl}">${grp.items.length}</span>`;
+    const fbadge = fails ? `<span class="cnt fails">${fails}✗</span>` : "";
+    head.innerHTML = `<span class="tw">▶</span><span>${esc(grp.task || "…")}</span>${fbadge}<span class="cnt">${grp.items.length}</span>`;
     head.onclick = () => div.classList.toggle("open");
     div.appendChild(head);
     const list = document.createElement("div");
     list.className = "tl-group-steps";
     grp.items.forEach(({ s, idx }) => {
+      const st = stepStatus(s);
       const b = document.createElement("button");
-      b.className = "tl-step" + (idx === state.stepIdx ? " active" : "");
-      b.title = s.llm || "";
-      b.innerHTML = `<span class="ic">✓</span>
+      b.className = `tl-step ${st.state}` + (idx === state.stepIdx ? " active" : "");
+      b.title = st.state === "fail" ? st.label : (s.llm || "");
+      b.innerHTML = `<span class="ic">${icon[st.state]}</span>
         <span>Step ${esc(String(s.n))}</span>
         <span class="dur">${esc(s.duration || "")}</span>`;
       b.onclick = () => gotoStep(idx);
@@ -544,7 +576,12 @@ function renderExTimeline() {
 function renderExBanner() {
   const d = state.detail, s = curStep();
   if (!s) return;
-  let badges = `<span class="badge ok" title="This checkpoint was proven equivalent by formal verification">✓ FEV verified</span>`;
+  const st = stepStatus(s);
+  let badges = st.state === "fail"
+    ? `<span class="badge bad" title="${esc(st.label)}">✗ FEV failed: ${esc(st.label)}</span>`
+    : st.state === "none"
+    ? `<span class="badge">setup step (no FEV)</span>`
+    : `<span class="badge ok" title="Proven equivalent by formal verification">✓ FEV verified</span>`;
   if (s.duration) badges += `<span class="badge info">took ${esc(s.duration)}</span>`;
   if (s.model) badges += `<span class="badge info">${esc(s.model)}</span>`;
   $("#ex-banner").innerHTML = `
