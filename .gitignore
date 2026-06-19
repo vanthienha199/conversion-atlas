@@ -1,0 +1,7 @@
+.playwright-mcp/
+__pycache__/
+.DS_Store
+PROGRESS.md
+DESIGN.md
+make_handoff.py
+tests/check_clean.py

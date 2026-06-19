@@ -1,0 +1,68 @@
+{
+  "intro": {
+    "title": "What is serv_aligner?",
+    "md": "`serv_aligner` is the **instruction fetch aligner** of the SERV RISC-V CPU, and at 67 lines it is the smallest module in the design. That makes it the perfect first conversion to study.\n\n**The problem it solves:** when SERV runs *compressed* (16-bit) instructions, the program counter can land in the **middle** of a 32-bit memory word. But memory only returns whole aligned words. So the aligner plays a small trick with two registers:\n\n- `lower_hw` (16 bits) remembers the **upper half** of the word fetched last time\n- `ctrl_misal` (1 bit) remembers \"we are currently misaligned\"\n\nWhen misaligned, it fetches the *next* word (`address + 4`) and glues the two halves together: `{new_word[15:0], lower_hw}`. It also uses `ack_en` to hide the first memory acknowledge from the CPU, because a misaligned fetch secretly needs **two** bus transactions.\n\n**The journey you are about to replay:** an AI agent converted this Verilog to TL-Verilog in 15 small steps. Every step had to pass **FEV** (Formal Equivalence Verification), a mathematical proof that the change did not alter the circuit's behavior. Use **Next** to walk forward, watch the editor for what changed, and hit **▶ Run check** to see the verification verdict."
+  },
+  "steps": {
+    "1": {
+      "title": "Build the safety net first",
+      "md": "Notice the editor shows **zero code changes**. A conversion never starts by editing code. It starts by building the scaffolding that makes every later edit provable:\n\n- the original Verilog was copied to `prepared.sv` (the frozen reference), `wip.tlv` (the file the AI will edit), and `feved.tlv` (the last version that passed verification)\n- `fev.eqy` and `fev_full.eqy` were created: the configs that tell the EQY prover **which two files to compare**\n- `tracker.md` and `status.json` were created for notes and progress\n\nThen `fev.sh` ran once on two *identical* files. Why bother? To prove the verification pipeline itself works before any real change. If this fails, something is wrong with the tools, not the code.\n\n**Try it:** open *Files at this checkpoint* and peek at `fev.eqy`."
+    },
+    "2": {
+      "title": "Tell the prover which signals match",
+      "md": "Still no code changes, but open `fev_full.eqy` in *Files* and you will see new `gold-match` lines for every internal signal:\n\n```\ngold-match ibus_rdt_concat ibus_rdt_concat\ngold-match ack_en ack_en\ngold-match lower_hw lower_hw\ngold-match ctrl_misal ctrl_misal\n```\n\n**Why this matters more than it looks:** EQY does not compare two circuits in one giant proof. It cuts them into small partitions at *matching signals* and proves each piece separately. This flow does **not** use reset to synchronize the two circuits, so every register (`lower_hw`, `ctrl_misal`) **must** be matched, otherwise the prover assumes they can start with different values and the proof fails.\n\nThis is the #1 source of FEV failures in the whole project: rename a signal, forget to update the match list, watch the proof break."
+    },
+    "3": {
+      "title": "Check for parameters (there are none)",
+      "md": "The AI inspected the module for Verilog `parameter`s and `generate` blocks. Parameterized modules must be proven for **several parameter values** (each gets its own `fev_full_*.eqy` config), because logic that is correct for `W=1` can be broken for `W=4`.\n\n`serv_aligner` has no parameters and no generate blocks, so nothing to do. Compare with `serv_alu`, which needed a separate `fev_full_W_4.eqy`.\n\nA do-nothing step still gets a checkpoint: that is what makes the history a complete, replayable record."
+    },
+    "4": {
+      "title": "Audit the clock and reset",
+      "md": "TL-Verilog has two hard requirements before any conversion can start:\n\n1. one free-running clock named exactly `clk`\n2. a **synchronous** reset (TL-Verilog cannot express asynchronous reset)\n\nThe AI audited the code: the clock is already `clk` ✓, and `rst` is read inside `always @(posedge clk)`, never in the sensitivity list, so it is synchronous and positively asserted ✓. No edits needed.\n\n**One honest detail:** the status recorded at this snapshot says `3: Incremental FEV failed`. That is a leftover from a *failed attempt* during this task, before this passing checkpoint was saved. The history keeps that trace, which is exactly the kind of breadcrumb you want when debugging an agent."
+    },
+    "5": {
+      "title": "Wrap the Verilog in a TL-Verilog shell",
+      "md": "The first real edit, and it is a big one (62 lines), yet **behavior changes zero**. The file becomes a TL-Verilog file with the Verilog tucked inside:\n\n```\n\\TLV_version 1d: tl-x.org\n\\SV\nmodule serv_aligner (...);\n\\TLV\n   |default\n      @0\n         \\SV_plus\n            ...all the original logic...\n\\SV\nendmodule\n```\n\nRead the new scaffolding from outside in:\n\n- `\\SV` regions hold plain SystemVerilog (the module ports)\n- `\\TLV` is where TL-Verilog lives\n- `|default` declares a pipeline, `@0` declares stage 0 of it\n- `\\SV_plus` is a **Verilog island inside TL-Verilog**: original code can sit here unchanged until it is ready to migrate\n\nAlso note everything is re-indented to exactly 3 spaces per level. In TL-Verilog, indentation IS structure, like Python."
+    },
+    "6": {
+      "title": "One tiny rename: rst becomes reset",
+      "md": "A deliberately tiny step: create `wire reset = rst;` and use it in place of `rst`.\n\nWhy bother? TL-Verilog's conventions expect a positively-asserted reset called `reset`, and later steps will turn it into the pipesignal `$reset`. Renaming **now**, while the code is still plain Verilog, keeps the later (riskier) steps smaller.\n\nThis is the agent's core discipline you will see again and again: *make the smallest change that FEV can verify, then checkpoint*. Seven changed lines, one new wire, proof, done."
+    },
+    "7": {
+      "title": "Signals become pipesignals ($)",
+      "md": "The signature TL-Verilog concept arrives. Every internal signal gets a `$` and stops being declared:\n\n```\nassign $$ack_en = ! (i_ibus_adr[1] & ! $ctrl_misal);\n```\n\nTwo new spellings to learn:\n\n- `$$name[range]`: \"this Verilog statement **assigns** pipesignal `$name`\". Inside an `\\SV_plus` island, SandPiper does not parse the Verilog, so the `$$` marks the assignment explicitly, with its bit range\n- `$name`: an ordinary **use** of the pipesignal\n\nThe `wire`/`reg` declarations are deleted because TL-Verilog declares a signal by assigning it.\n\n**Now open *Files* → `fev.eqy`.** Because every signal changed its generated Verilog name, the match list had to follow:\n\n```\ngold-match lower_hw |default<>0$lower_hw\n```\n\nThat line says: old signal `lower_hw` = pipesignal `$lower_hw` in stage 0 of pipeline `|default`. Rename without updating this list and FEV fails, which is exactly the bug Arya hit on serv_decode."
+    },
+    "8": {
+      "title": "Sweep up the leftover declarations",
+      "md": "The previous step converted assignments; this one deletes the now-orphaned `reg [15:0] lower_hw;` and `reg ctrl_misal;` declarations (3 lines).\n\nThe task is named *Non-vector Signals* because its real job is hunting for signals with types TL-Verilog cannot express directly (structs, signed values). `serv_aligner` has none, so the step degenerates into housekeeping.\n\nSmall lesson hiding here: the registers did not disappear, they are still inferred by the `$$lower_hw <= ...` flop assignment. Only the *declarations* became redundant."
+    },
+    "9": {
+      "title": "if/else becomes ternary, hidden state becomes visible",
+      "md": "TL-Verilog wants each signal assigned by **one expression**, so the two `always`-block conditionals get rewritten:\n\n```\n$$lower_hw[15:0] <= i_wb_ibus_ack ? i_wb_ibus_rdt[31:16] : $lower_hw;\n\n$$ctrl_misal <= $reset ? 1'b0 :\n               (i_wb_ibus_ack & i_ibus_adr[1]) ? ! $ctrl_misal :\n               $ctrl_misal;\n```\n\nLook closely at the last line of each ternary: `: $lower_hw` and `: $ctrl_misal`. The original Verilog had `if (ack) lower_hw <= ...` with **no else**, which silently means \"otherwise keep the old value\". The ternary is forced to say that out loud: *recirculate yourself*.\n\nThis explicitness is the point: hidden hold-state is where Verilog bugs live, and TL-Verilog refuses to hide it."
+    },
+    "10": {
+      "title": "Leave the island: logic becomes native TL-Verilog",
+      "md": "The biggest conceptual jump in the whole conversion. The logic walks out of the `\\SV_plus` island and becomes real TL-Verilog expressions:\n\n```\n<<1$lower_hw[15:0] = *i_wb_ibus_ack ? *i_wb_ibus_rdt[31:16] : $lower_hw;\n```\n\nThree things changed at once:\n\n- **`<<1$lower_hw = ...`** assigns the value `$lower_hw` will have **one cycle in the future**. That is the whole flip-flop: no `always @(posedge clk)`, no `<=`. A register is now just an equation about time\n- **`*i_wb_ibus_ack`**: the `*` prefix marks a raw Verilog signal (the module ports) referenced from TL-Verilog context\n- `assign` keywords are gone: TL-Verilog statements are declarative\n\nCompare the editor's red lines (Verilog always-blocks) with the green lines replacing them. Same circuit, FEV-proven, but the *clock has disappeared from the source code*. SandPiper puts it back when generating Verilog."
+    },
+    "11": {
+      "title": "Push Verilog to the edges",
+      "md": "Until now the core logic still touched raw `*port` signals everywhere. This step builds a clean **airlock** between the two worlds:\n\n```\n// Connect Verilog inputs to pipesignals\n$i_ibus_adr[31:0] = *i_ibus_adr;\n$i_wb_ibus_ack = *i_wb_ibus_ack;\n...\n// core logic, pipesignals only\n...\n// Connect pipesignals to Verilog outputs\n```\n\nEvery input is bound to a pipesignal once, at the top. Every output is driven once, at the bottom. The logic in between never mentions a `*` again.\n\nWhy it is worth a step: module outputs are **cut points** for the EQY prover. If one version computes with the output signal and the other computes with an internal copy, the prover's partitions stop lining up. Doing this consolidation as one isolated, verified step keeps that risk contained."
+    },
+    "12": {
+      "title": "Tidy: make it read like the original",
+      "md": "Pure cleanup, formally proven harmless:\n\n- the temporary `$rst` hop is gone: `$reset = *rst;` directly\n- the original designer's comments (the big *From SERV core to Memory* block) move back next to the logic they describe\n\nThis reflects a project rule that is easy to underestimate: the converted file should *look like the original file*, same comments, same order, same story. The goal of the whole project is maintainable code that humans recognize, not machine output that happens to be equivalent."
+    },
+    "13": {
+      "title": "Switch on the M5 preprocessor",
+      "md": "Three lines:\n\n```\n\\m5_TLV_version 1d: tl-x.org\n\\m5\n   use(m5-1.0)\n```\n\nM5 is TL-Verilog's macro preprocessor (think of it as a much smarter `#define`). Nothing uses it *yet*: this step exists only so the **next** step can define a reusable macro.\n\nNote the agent's discipline again: enabling a preprocessor and using a preprocessor are two separate, separately-verified steps. If FEV broke, you would know exactly which of the two ideas broke it."
+    },
+    "14": {
+      "title": "The payoff: a reusable component",
+      "md": "The finale. The core logic is lifted into a named TL-Verilog macro:\n\n```\n\\TLV serv_aligner_logic(/_top)\n   |default\n      @0\n         <<1$lower_hw[15:0] = ...\n         $ibus_rdt_concat[31:0] = ...\n         $ack_en = ...\n         <<1$ctrl_misal = ...\n```\n\nand the module body shrinks to: bind inputs → `m5+serv_aligner_logic(/top)` → drive outputs.\n\nStep back and look at what 67 lines of Verilog became: **four equations**. And the same file now works two ways: instantiate it as a normal Verilog module, or drop `m5+serv_aligner_logic(...)` straight into any other TL-Verilog design as a library component. This dual-use structure is the template every other SERV module follows."
+    },
+    "15": {
+      "title": "The end-to-end proof",
+      "md": "No code changes. The final `fev.sh` run proves the finished `wip.tlv` equivalent to the **original** `prepared.sv` across the *entire* conversion, not just step-to-step. That single proof is what lets you trust 14 steps of AI edits without reading any of them.\n\nThe AI also finalized its report: open **Conversion report** in the left panel to read the handoff summary (original 68 lines → 65 lines of TL-Verilog, core logic 15 lines, zero outstanding issues).\n\n**Where to go from here:** you just watched the recipe that every conversion follows. The next module up in difficulty is `serv_mem_if`, then `serv_alu` with its `W=1`/`W=4` parameter twist, the exact thing step 3 got to skip."
+    }
+  }
+}
