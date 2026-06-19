@@ -714,14 +714,14 @@ mark { padding: 0 1px; }
   font-size: clamp(2.2rem, 5vw, 3.2rem); line-height: 1.04; letter-spacing: -0.03em;
   margin: 0 0 18px; color: var(--navy); font-weight: 700;
 }
-.guide-hero p { font-size: 1.18rem; line-height: 1.6; color: var(--muted); max-width: 62ch; margin: 0; }
+.guide-hero p { font-size: 1.18rem; line-height: 1.6; color: var(--muted); margin: 0; }
 
 .guide-sec { margin-top: 56px; }
 .guide-sec h2 {
   font-size: 1.5rem; letter-spacing: -0.02em; color: var(--navy); margin: 0 0 14px;
   padding-bottom: 10px; border-bottom: 1px solid var(--line);
 }
-.guide-sec p { font-size: 1.04rem; line-height: 1.7; color: #2b3040; max-width: 68ch; }
+.guide-sec p { font-size: 1.04rem; line-height: 1.7; color: #2b3040; }
 .guide-sec code { font-family: var(--mono); font-size: 0.86em; background: #ececf4;
   padding: 1px 6px; border-radius: 5px; color: var(--navy); }
 
@@ -733,7 +733,7 @@ mark { padding: 0 1px; }
 }
 
 .guide-list { font-size: 1.04rem; line-height: 1.7; color: #2b3040; padding-left: 0; list-style: none; }
-.guide-list li { position: relative; padding-left: 26px; margin-bottom: 12px; max-width: 68ch; }
+.guide-list li { position: relative; padding-left: 26px; margin-bottom: 12px; }
 .guide-list li::before {
   content: ""; position: absolute; left: 4px; top: 11px; width: 8px; height: 8px;
   border-radius: 2px; background: var(--yellow); transform: rotate(45deg);
@@ -754,4 +754,4 @@ mark { padding: 0 1px; }
 .guide-shot figcaption { margin-top: 12px; font-size: 0.88rem; color: var(--faint); text-align: center; }
 
 .guide-foot { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); }
-.guide-foot p { font-size: 0.95rem; color: var(--faint); max-width: 66ch; }
+.guide-foot p { font-size: 0.95rem; color: var(--faint); }
