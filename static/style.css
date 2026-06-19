@@ -659,21 +659,20 @@ mark { padding: 0 1px; }
 
 /* ------------------------------------------------- difficulty heatmap */
 
-.difficulty { margin: 6px 0 12px; }
+.difficulty { margin: 8px 0 14px; }
 .diff-bars {
-  display: flex; align-items: flex-end; gap: 3px; height: 52px;
-  padding: 4px 2px; border-radius: 6px; background: var(--paper);
+  display: flex; align-items: flex-end; gap: 2px; height: 44px;
+  padding: 6px 8px; border-radius: 8px; background: #f0f1f8;
+  border: 1px solid var(--line); border-bottom-width: 2px;
 }
 .diff-bar {
-  flex: 1 1 0; min-width: 4px; border: none; border-radius: 3px 3px 0 0;
-  display: flex; align-items: flex-start; justify-content: center;
-  padding-top: 2px; cursor: pointer; position: relative;
+  flex: 1 1 0; min-width: 5px; border: none; border-radius: 2px 2px 0 0;
+  cursor: pointer; padding: 0;
   transition: transform 150ms var(--spring), filter 150ms ease-out;
 }
-.diff-bar:hover { filter: brightness(1.06); transform: scaleY(1.04); transform-origin: bottom; }
-.diff-bar .db-n { font-size: 0.6rem; font-weight: 700; color: rgba(16,22,47,0.55); line-height: 1; }
+.diff-bar:hover { filter: brightness(1.06); transform: scaleY(1.06); transform-origin: bottom; }
 .diff-bar.on { outline: 2px solid var(--indigo); outline-offset: 1px; }
-.diff-legend { font-size: 0.7rem; color: var(--faint); margin-top: 5px; line-height: 1.3; }
+.diff-legend { font-size: 0.7rem; color: var(--faint); margin-top: 6px; line-height: 1.35; }
 
 /* shared heat scale: calm -> hot */
 .heat0 { background: #d7dbe8; }

@@ -272,7 +272,7 @@ function renderDifficulty(groups) {
     const n = g.items.length, fails = groupFails(g), lvl = heatLevel(fails);
     const tip = `${g.task || "task"}: ${n} checkpoint${n === 1 ? "" : "s"}, ${fails} failed FEV`;
     return `<button class="diff-bar heat${lvl}${gi === activeGi ? " on" : ""}" data-gi="${gi}" title="${esc(tip)}"
-      style="height:${Math.max(12, Math.round((n / max) * 100))}%"><span class="db-n">${n}</span></button>`;
+      style="height:${Math.max(8, Math.round((n / max) * 100))}%"></button>`;
   }).join("") + `</div><div class="diff-legend">bar height is checkpoints per task; warmer means more FEV failures, where the agent struggled</div>`;
   host.querySelectorAll(".diff-bar").forEach((b) => {
     b.onclick = () => gotoStep(groups[+b.dataset.gi].items[0].idx);
@@ -659,6 +659,7 @@ function disconnectLive() {
 function connectLive(modId) {
   disconnectLive();
   if (modId == null) return;
+  if (new URLSearchParams(location.hash.slice(1)).get("live") === "0") return;
   $("#tail-follow").hidden = false;
   const es = new EventSource("/api/events?mod=" + modId);
   state.es = es;
