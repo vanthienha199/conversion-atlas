@@ -292,8 +292,9 @@ function renderExTimeline() {
     div.className = "tl-group" + (hasActive ? " open" : "");
     const head = document.createElement("button");
     head.className = "tl-group-head heat" + lvl + (hasActive ? " has-active" : "");
-    const fbadge = fails ? `<span class="cnt fails">${fails}✗</span>` : "";
-    head.innerHTML = `<span class="tw">▶</span><span>${esc(grp.task || "…")}</span>${fbadge}<span class="cnt">${grp.items.length}</span>`;
+    const n = grp.items.length;
+    const fbadge = fails ? `<span class="cnt fails" title="${fails} of ${n} checkpoints failed FEV">${fails} failed</span>` : "";
+    head.innerHTML = `<span class="tw">▶</span><span class="tl-task">${esc(grp.task || "…")}</span>${fbadge}<span class="cnt total" title="${n} checkpoint${n === 1 ? "" : "s"} in this task">${n} step${n === 1 ? "" : "s"}</span>`;
     head.onclick = () => div.classList.toggle("open");
     div.appendChild(head);
     const list = document.createElement("div");
