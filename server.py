@@ -375,19 +375,30 @@ def step_changes(mod, step_key):
 
 
 def find_tasks_md(mod):
-    d = mod["path"]
-    cands = []
+    d = os.path.realpath(mod["path"])
     if ARGS and ARGS.tasks_md:
-        cands.append(ARGS.tasks_md)
-    cands.append(os.path.join(d, "instructions", "conversion_tasks.md"))
-    scripts = os.path.join(d, "scripts")
-    if os.path.islink(scripts):
-        cands.append(os.path.join(os.path.realpath(scripts), "..", "instructions", "conversion_tasks.md"))
-    cands.append(os.path.expanduser("~/projects/LLM_TLV/desktop_agent_verilog_conversion/instructions/conversion_tasks.md"))
-    for c in cands:
-        c = os.path.realpath(os.path.expanduser(c))
+        c = os.path.realpath(os.path.expanduser(ARGS.tasks_md))
         if os.path.isfile(c):
             return c
+    direct = os.path.join(d, "instructions", "conversion_tasks.md")
+    if os.path.isfile(direct):
+        return direct
+    scripts = os.path.join(d, "scripts")
+    if os.path.islink(scripts):
+        tgt = os.path.join(os.path.dirname(scripts), os.readlink(scripts))
+        c = os.path.realpath(os.path.join(tgt, "instructions", "conversion_tasks.md"))
+        if os.path.isfile(c):
+            return c
+    rel = os.path.join("desktop_agent_verilog_conversion", "instructions", "conversion_tasks.md")
+    p = d
+    for _ in range(8):
+        for cand in (os.path.join(p, "LLM_TLV", rel), os.path.join(p, rel)):
+            if os.path.isfile(cand):
+                return cand
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
     return None
 
 

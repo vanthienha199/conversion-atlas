@@ -87,6 +87,10 @@ no npm, no build step, read-only against your files.
 - Durations are derived from checkpoint directory mtimes, so they are only
   meaningful on the machine where the conversion ran (a fresh git clone
   resets them).
+- The Prompt tab needs `conversion_tasks.md`. The tool finds it even when a
+  module's `scripts/` symlink points to an absolute path from another machine,
+  by searching up for the `LLM_TLV/desktop_agent_verilog_conversion` repo. If
+  it still can't find it, pass `--tasks-md PATH`.
 - The server is read-only and refuses paths outside the scanned roots.
 
 Built by Ha Le for the Redwood EDA Summer Mentorship 2026.
