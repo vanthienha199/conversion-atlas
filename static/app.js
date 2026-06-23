@@ -552,6 +552,11 @@ async function exFiles(p) {
 async function exPrompt(p) {
   const d = state.detail, s = curStep();
   if (d.flavor === "gen1") return renderGen1Prompt(p, s);
+  if ((s.files || []).includes("task.md")) {
+    const fj = await api("file", { mod: d.module.id, step: s.key, name: "task.md" });
+    p.innerHTML = `<div class="note">The exact instructions the agent was following at this checkpoint.</div><div class="md-card md">${md(fj.content)}</div>`;
+    return;
+  }
   const name = s.task || d.current.task;
   if (!name) { p.innerHTML = `<div class="note">No task was recorded for this step.</div>`; return; }
   const wrap = document.createElement("div");
