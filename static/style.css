@@ -786,3 +786,9 @@ mark { padding: 0 1px; }
 .diff-unchanged { margin-top: 4px; }
 .diff-unchanged > summary { cursor: pointer; color: var(--faint); font-size: 0.82rem; padding: 6px 2px; user-select: none; }
 .diff-unchanged .file-grid { padding: 8px 2px; }
+
+/* difficulty bars split into failed (red) and passing segments */
+.diff-bar { display: flex; flex-direction: column; overflow: hidden; background: transparent; }
+.diff-bar .seg { width: 100%; }
+.diff-bar .seg.fail { background: var(--red); flex: none; }
+.diff-bar .seg.pass { background: #c2c7d8; flex: 1 1 auto; }

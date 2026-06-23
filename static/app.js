@@ -269,11 +269,13 @@ function renderDifficulty(groups) {
   const max = Math.max(1, ...groups.map((g) => g.items.length));
   const activeGi = groups.findIndex((g) => g.items.some((it) => it.idx === state.stepIdx));
   host.innerHTML = `<div class="diff-bars">` + groups.map((g, gi) => {
-    const n = g.items.length, fails = groupFails(g), lvl = heatLevel(fails);
+    const n = g.items.length, fails = groupFails(g);
+    const h = Math.max(8, Math.round((n / max) * 100));
+    const failPct = n ? Math.round((fails / n) * 100) : 0;
     const tip = `${g.task || "task"}: ${n} checkpoint${n === 1 ? "" : "s"}, ${fails} failed FEV`;
-    return `<button class="diff-bar heat${lvl}${gi === activeGi ? " on" : ""}" data-gi="${gi}" title="${esc(tip)}"
-      style="height:${Math.max(8, Math.round((n / max) * 100))}%"></button>`;
-  }).join("") + `</div><div class="diff-legend">bar height is checkpoints per task; warmer means more FEV failures, where the agent struggled</div>`;
+    return `<button class="diff-bar${gi === activeGi ? " on" : ""}" data-gi="${gi}" title="${esc(tip)}" style="height:${h}%">
+      <span class="seg fail" style="height:${failPct}%"></span><span class="seg pass"></span></button>`;
+  }).join("") + `</div><div class="diff-legend">bar height is checkpoints per task; the red portion is failed FEV, where the agent struggled</div>`;
   host.querySelectorAll(".diff-bar").forEach((b) => {
     b.onclick = () => gotoStep(groups[+b.dataset.gi].items[0].idx);
   });
