@@ -625,7 +625,7 @@ function costSummary(c) {
   const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
   const models = Object.keys(c.by_model || {}).map((m) => m.replace(/^claude-/, "")).join(", ");
   const dollars = c.usd < 1 ? "$" + c.usd.toFixed(4) : "$" + c.usd.toFixed(2);
-  return `<div class="cost-bar"><b>~${dollars}</b> · ${k(c.input)} in / ${k(c.output)} out · ${k(c.cache_read)} cached${models ? " · " + esc(models) : ""}</div>`;
+  return `<div class="cost-bar"><b>${dollars}</b> · ${k(c.input)} in / ${k(c.output)} out · ${k(c.cache_read)} cached${models ? " · " + esc(models) : ""}</div>`;
 }
 
 async function exSessions(p) {
