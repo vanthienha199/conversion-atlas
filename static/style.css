@@ -800,3 +800,10 @@ mark { padding: 0 1px; }
   padding: 8px 12px; margin-bottom: 12px;
 }
 .cost-bar b { color: var(--indigo); }
+
+/* tracker diff: what the agent added at this step */
+.tracker-diff { margin: 8px 0 14px; display: flex; flex-direction: column; gap: 3px; }
+.td { font-family: var(--mono); font-size: 0.82rem; padding: 3px 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
+.td.add { background: #e6f7ee; color: var(--green-dk); border-left: 3px solid var(--green); }
+.td.del { background: #fdeceb; color: var(--red-dk); border-left: 3px solid var(--red); text-decoration: line-through; }
+.tracker-full > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 0; user-select: none; }

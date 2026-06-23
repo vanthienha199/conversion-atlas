@@ -570,9 +570,36 @@ async function exNotes(p) {
   p.innerHTML = `<div class="kv">${rows}</div>`;
 }
 
+function trackerDiff(rows) {
+  const out = [];
+  for (const r of rows) {
+    const [t, an, at, bn, bt] = r;
+    if (t === "add") out.push(`<div class="td add">${esc(bt)}</div>`);
+    else if (t === "del") out.push(`<div class="td del">${esc(at)}</div>`);
+    else if (t === "chg") { out.push(`<div class="td del">${esc(at)}</div>`); out.push(`<div class="td add">${esc(bt)}</div>`); }
+  }
+  return out.length ? out.join("") : `<div class="note">No change to the tracker at this step.</div>`;
+}
+
 async function exTracker(p) {
-  const tj = await api("tracker", { mod: state.detail.module.id });
-  p.innerHTML = `<div class="md-card md">${md(tj.markdown)}</div>`;
+  const d = state.detail, s = curStep();
+  if (!(s.files || []).includes("tracker.md")) {
+    const tj = await api("tracker", { mod: d.module.id });
+    p.innerHTML = `<div class="md-card md">${md(tj.markdown)}</div>`;
+    return;
+  }
+  const prev = state.stepIdx > 0 ? d.steps[state.stepIdx - 1] : null;
+  const prevHas = prev && (prev.files || []).includes("tracker.md");
+  const cur = await api("file", { mod: d.module.id, step: s.key, name: "tracker.md" });
+  let diffHtml = "";
+  if (prevHas) {
+    const dj = await api("diff", { mod: d.module.id, a_step: prev.key, a_name: "tracker.md", b_step: s.key, b_name: "tracker.md" });
+    diffHtml = trackerDiff(dj.rows);
+  }
+  p.innerHTML = `
+    <div class="panel-toolbar"><span>${prevHas ? `What the agent added to <code>tracker.md</code> at step ${s.n}` : `Tracker at step ${s.n}`}</span></div>
+    ${prevHas ? `<div class="tracker-diff">${diffHtml}</div>` : ""}
+    <details class="tracker-full"${prevHas ? "" : " open"}><summary>Full tracker at this step</summary><div class="md-card md">${md(cur.content)}</div></details>`;
 }
 
 function noSessionsHelp() {
