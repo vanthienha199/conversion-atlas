@@ -792,3 +792,11 @@ mark { padding: 0 1px; }
 .diff-bar .seg { width: 100%; }
 .diff-bar .seg.fail { background: var(--red); flex: none; }
 .diff-bar .seg.pass { background: #c2c7d8; flex: 1 1 auto; }
+
+/* token + cost summary on an opened transcript */
+.cost-bar {
+  font-family: var(--mono); font-size: 0.8rem; color: var(--navy);
+  background: var(--indigo-soft); border: 1px solid #d7d2fb; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 12px;
+}
+.cost-bar b { color: var(--indigo); }

@@ -588,6 +588,14 @@ function noSessionsHelp() {
   <code>--claude-projects &lt;copied-folder&gt;</code>. Folders are matched by module name.</div>`;
 }
 
+function costSummary(c) {
+  if (!c || (!c.usd && !c.input && !c.output)) return "";
+  const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+  const models = Object.keys(c.by_model || {}).map((m) => m.replace(/^claude-/, "")).join(", ");
+  const dollars = c.usd < 1 ? "$" + c.usd.toFixed(4) : "$" + c.usd.toFixed(2);
+  return `<div class="cost-bar"><b>~${dollars}</b> · ${k(c.input)} in / ${k(c.output)} out · ${k(c.cache_read)} cached${models ? " · " + esc(models) : ""}</div>`;
+}
+
 async function exSessions(p) {
   const sj = await api("sessions", { mod: state.detail.module.id });
   if (!sj.sessions.length) {
@@ -603,7 +611,7 @@ async function exSessions(p) {
       const host = $("#ex-sess-host");
       host.innerHTML = `<div class="note">loading transcript…</div>`;
       const mj = await api("session", { id: b.dataset.id, mod: state.detail.module.id });
-      host.innerHTML = mj.messages.map((m) => {
+      const body = mj.messages.map((m) => {
         const bodyHtml = m.parts.map((pt) => {
           if (pt.t === "text") return `<pre>${esc(pt.text)}</pre>`;
           if (pt.t === "tool") return `<span class="tool-chip">⚙ ${esc(pt.name)}</span>`;
@@ -611,6 +619,7 @@ async function exSessions(p) {
         }).join("");
         return `<div class="bubble ${m.role === "user" ? "user" : ""}"><div class="who">${esc(m.role)}</div>${bodyHtml}</div>`;
       }).join("") || `<div class="note">empty transcript</div>`;
+      host.innerHTML = costSummary(mj.cost) + body;
     };
   });
 }

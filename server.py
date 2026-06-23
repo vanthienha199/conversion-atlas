@@ -23,6 +23,8 @@ AUTODETECT = (
     "~/projects/conversion-to-TLV",
 )
 
+PRICES = {"opus": (15.0, 75.0), "sonnet": (3.0, 15.0), "haiku": (1.0, 5.0)}
+
 ARGS = None
 MODULES = []
 
@@ -502,6 +504,38 @@ def normalize_content(content):
     return parts
 
 
+def model_rate(model):
+    m = (model or "").lower()
+    for k, v in PRICES.items():
+        if k in m:
+            return v
+    return PRICES["sonnet"]
+
+
+def accumulate_cost(cost, msg):
+    u = msg.get("usage") or {}
+    inp = u.get("input_tokens") or 0
+    out = u.get("output_tokens") or 0
+    cw = u.get("cache_creation_input_tokens") or 0
+    cr = u.get("cache_read_input_tokens") or 0
+    if not (inp or out or cw or cr):
+        return
+    model = msg.get("model") or "unknown"
+    ri, ro = model_rate(model)
+    usd = (inp * ri + cw * ri * 1.25 + cr * ri * 0.1 + out * ro) / 1e6
+    cost["input"] += inp
+    cost["output"] += out
+    cost["cache_read"] += cr
+    cost["cache_creation"] += cw
+    cost["usd"] += usd
+    bm = cost["by_model"].setdefault(model, {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "usd": 0.0})
+    bm["input"] += inp
+    bm["output"] += out
+    bm["cache_read"] += cr
+    bm["cache_creation"] += cw
+    bm["usd"] += usd
+
+
 def load_session(session_id, mod=None):
     if session_id.startswith("repo/"):
         if mod is None:
@@ -519,10 +553,9 @@ def load_session(session_id, mod=None):
         if not (p.startswith(base + os.sep) and p.endswith(".jsonl") and os.path.isfile(p)):
             raise PermissionError("bad session")
     msgs = []
+    cost = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "usd": 0.0, "by_model": {}}
     with open(p, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
-            if len(msgs) >= 4000:
-                break
             line = line.strip()
             if not line:
                 continue
@@ -536,11 +569,18 @@ def load_session(session_id, mod=None):
             if t not in ("user", "assistant"):
                 continue
             msg = obj.get("message") or {}
+            if t == "assistant":
+                accumulate_cost(cost, msg)
+            if len(msgs) >= 4000:
+                continue
             parts = normalize_content(msg.get("content"))
             if not parts:
                 continue
             msgs.append({"role": msg.get("role", t), "ts": obj.get("timestamp"), "parts": parts})
-    return msgs
+    cost["usd"] = round(cost["usd"], 4)
+    for bm in cost["by_model"].values():
+        bm["usd"] = round(bm["usd"], 4)
+    return {"messages": msgs, "cost": cost}
 
 
 def live_state(mod):
@@ -740,7 +780,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/session":
             sid = q.get("id", [""])[0]
             mod = get_mod(q) if sid.startswith("repo/") else None
-            return self.send_json({"messages": load_session(sid, mod)})
+            return self.send_json(load_session(sid, mod))
         return self.send_json({"error": "unknown endpoint"}, 404)
 
     def static(self, route):
