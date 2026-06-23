@@ -421,25 +421,19 @@ function renderExPanel() {
   });
 }
 
-function defaultChangedFile(fileList, allFiles) {
-  const changed = fileList.filter((f) => f.status === "M" || f.status === "A");
-  const wip = changed.find((f) => f.name === "wip.tlv");
-  if (wip) return wip.name;
-  const eqy = changed.find((f) => f.name.endsWith(".eqy"));
-  if (eqy) return eqy.name;
-  if (changed.length) return changed[0].name;
-  return defaultFile(allFiles);
-}
-
-function fileChipRow(fileList, sel) {
-  const chip = (f) => {
-    const changed = f.status !== "U";
-    const badge = changed ? `<span class="fc-badge ${f.status}">${f.status}</span>` : "";
-    const counts = (f.added || f.removed)
-      ? `<span class="fc-counts"><span class="add">+${f.added}</span><span class="rem">−${f.removed}</span></span>` : "";
-    return `<button class="fchip ${changed ? "changed" : "unchanged"} ${f.name === sel ? "sel" : ""}" data-name="${esc(f.name)}">${badge}<span class="fc-name">${esc(f.name)}</span>${counts}</button>`;
-  };
-  return `<div class="fchips">${fileList.map(chip).join("")}</div>`;
+async function fileDiffRows(f, s, d) {
+  if (f.status === "A") {
+    const fj = await api("file", { mod: d.module.id, step: s.key, name: f.name });
+    return fj.content.split("\n").map((t, i) => ["add", null, null, i + 1, t]);
+  }
+  if (f.status === "D" && state.stepIdx > 0) {
+    const prev = d.steps[state.stepIdx - 1];
+    const fj = await api("file", { mod: d.module.id, step: prev.key, name: f.name });
+    return fj.content.split("\n").map((t, i) => ["del", i + 1, t, null, null]);
+  }
+  const ep = diffEndpoints(f.name);
+  const dj = await api("diff", { mod: d.module.id, ...ep });
+  return dj.rows;
 }
 
 async function exDiff(p) {
@@ -449,32 +443,50 @@ async function exDiff(p) {
   try { changes = await api("changes", { mod: d.module.id, step: s.key }); } catch (_) {}
   const fileList = changes ? changes.files
     : allFiles.map((n) => ({ name: n, status: "U", added: 0, removed: 0 }));
-  const file = state.file && fileList.some((f) => f.name === state.file)
-    ? state.file : defaultChangedFile(fileList, allFiles);
-  state.file = file;
+  const changed = fileList.filter((f) => f.status !== "U");
+  const unchanged = fileList.filter((f) => f.status === "U");
   const nChanged = changes ? changes.changed : 0;
-  const ep = diffEndpoints(file);
-  const dj = await api("diff", { mod: d.module.id, ...ep });
   const prev = state.stepIdx > 0 ? d.steps[state.stepIdx - 1] : null;
-  const aLabel = ep.a_step === "root" ? "original Verilog (prepared.sv)"
-    : prev ? `step ${prev.n}` : "first checkpoint";
-  const bLabel = `step ${s.n}`;
+  const a0 = state.stepIdx === 0;
+  const show = changed.length ? changed : fileList;
   p.innerHTML = `
     <div class="panel-toolbar diff-toolbar">
       <span class="diff-summary">${changes ? `<b>${nChanged}</b> file${nChanged === 1 ? "" : "s"} changed this step` : "files at this checkpoint"}</span>
       ${d.flavor === "gen2" ? `<button class="btn-mini" id="ex-vs-orig">vs original Verilog</button>` : ""}
     </div>
-    ${fileChipRow(fileList, file)}
-    <div id="ex-diff-host"></div>`;
-  p.querySelectorAll(".fchip").forEach((b) => {
-    b.onclick = () => { state.file = b.dataset.name; renderExPanel(); };
-  });
+    <div id="ex-stack"></div>
+    ${unchanged.length ? `<details class="diff-unchanged"><summary>${unchanged.length} unchanged file${unchanged.length === 1 ? "" : "s"}</summary><div class="file-grid" id="ex-unchanged"></div></details>` : ""}`;
+  const stack = $("#ex-stack");
+  for (const f of show) {
+    const counts = (f.added || f.removed)
+      ? `<span class="fc-counts"><span class="add">+${f.added}</span><span class="rem">−${f.removed}</span></span>` : "";
+    const badge = f.status !== "U" ? `<span class="fc-badge ${f.status}">${f.status}</span>` : "";
+    const sec = document.createElement("details");
+    sec.className = "fdiff";
+    sec.open = true;
+    sec.innerHTML = `<summary>${badge}<span class="fc-name">${esc(f.name)}</span>${counts}</summary><div class="fdiff-body"><div class="note">loading…</div></div>`;
+    stack.appendChild(sec);
+    const aLabel = (a0 && f.name === "wip.tlv") ? "original Verilog" : prev ? `step ${prev.n}` : "before";
+    fileDiffRows(f, s, d)
+      .then((rows) => renderSxS(sec.querySelector(".fdiff-body"), rows, aLabel, `step ${s.n}`))
+      .catch((e) => { sec.querySelector(".fdiff-body").innerHTML = `<div class="note">${esc(e.message)}</div>`; });
+  }
+  const uc = $("#ex-unchanged");
+  if (uc) {
+    uc.innerHTML = unchanged.map((f) => `<button class="file-pill" data-name="${esc(f.name)}">${esc(f.name)}</button>`).join("");
+    uc.querySelectorAll(".file-pill").forEach((b) => {
+      b.onclick = async () => {
+        const fj = await api("file", { mod: d.module.id, step: s.key, name: b.dataset.name });
+        openModal(`${s.key} / ${b.dataset.name}`, fj.content);
+      };
+    });
+  }
   const vs = $("#ex-vs-orig");
   if (vs) vs.onclick = async () => {
-    const dj2 = await api("diff", { mod: d.module.id, a_step: "root", a_name: "prepared.sv", b_step: s.key, b_name: file });
-    renderSxS($("#ex-diff-host"), dj2.rows, "original Verilog", `step ${s.n} / ${file}`);
+    stack.innerHTML = `<details class="fdiff" open><summary><span class="fc-name">wip.tlv vs original Verilog</span></summary><div class="fdiff-body" id="ex-vs-host"><div class="note">loading…</div></div></details>`;
+    const dj2 = await api("diff", { mod: d.module.id, a_step: "root", a_name: "prepared.sv", b_step: s.key, b_name: "wip.tlv" });
+    renderSxS($("#ex-vs-host"), dj2.rows, "original Verilog", `step ${s.n} / wip.tlv`);
   };
-  renderSxS($("#ex-diff-host"), dj.rows, aLabel, bLabel);
 }
 
 function renderSxS(host, rows, aLabel, bLabel) {

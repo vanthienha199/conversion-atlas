@@ -769,3 +769,20 @@ mark { padding: 0 1px; }
 .tl-group-head .cnt.total { color: var(--muted); font-weight: 600; white-space: nowrap; }
 .tl-group-head .cnt.fails { background: #fdeceb; color: var(--red-dk); font-weight: 700; border-radius: 999px; padding: 1px 8px; font-size: 0.68rem; white-space: nowrap; margin-left: auto; }
 .tl-group-head .cnt.fails + .cnt.total { margin-left: 8px; }
+
+/* stacked per-file diffs (GitHub-PR style) */
+#ex-stack { margin-top: 4px; }
+.fdiff { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; background: var(--white); }
+.fdiff > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: #f4f5fa; font-size: 0.85rem; user-select: none;
+}
+.fdiff > summary::-webkit-details-marker { display: none; }
+.fdiff > summary::before { content: "▾"; color: var(--faint); font-size: 0.7rem; }
+.fdiff:not([open]) > summary::before { content: "▸"; }
+.fdiff > summary .fc-name { font-family: var(--mono); font-size: 0.8rem; }
+.fdiff > summary .fc-counts { margin-left: auto; }
+.fdiff .fdiff-body .sxs { border: none; border-radius: 0; }
+.diff-unchanged { margin-top: 4px; }
+.diff-unchanged > summary { cursor: pointer; color: var(--faint); font-size: 0.82rem; padding: 6px 2px; user-select: none; }
+.diff-unchanged .file-grid { padding: 8px 2px; }
