@@ -817,14 +817,15 @@ mark { padding: 0 1px; }
   line-height: 1.55;
   padding: 14px 16px;
   margin: 0;
-  background: var(--surface-raised, #14171c);
-  border: 1px solid var(--border, #2a2f37);
+  color: #d7dce5;
+  background: #0d1117;
+  border: 1px solid #2a2f37;
   border-radius: 8px;
   overflow-x: auto;
   max-height: 60vh;
 }
-.fev-out .fev-err { color: #ff8a8a; font-weight: 600; }
-.fev-out .fev-ok { color: #7ee0a8; }
+.fev-out .fev-err { color: #ff6b6b; font-weight: 600; }
+.fev-out .fev-ok { color: #57d98a; font-weight: 600; }
 .fev-verdict {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
