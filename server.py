@@ -6,6 +6,7 @@ import mimetypes
 import os
 import sys
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -583,6 +584,88 @@ def load_session(session_id, mod=None):
     return {"messages": msgs, "cost": cost}
 
 
+def iso_epoch(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def module_transcript(mod):
+    tdir = os.path.join(mod["path"], "transcripts")
+    if not os.path.isdir(tdir):
+        return None
+    cands = [os.path.join(tdir, f) for f in os.listdir(tdir) if f.endswith(".jsonl")]
+    return max(cands, key=lambda p: safe_mtime(p) or 0) if cands else None
+
+
+# Pull every fev.sh invocation (Bash tool call running the script, not a grep/cat of it)
+# out of an agent transcript, paired with the output the agent saw, sorted by time.
+def fev_runs_from_transcript(path):
+    runs, results = [], {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                content = (obj.get("message") or {}).get("content")
+                if not isinstance(content, list):
+                    continue
+                ts = iso_epoch(obj.get("timestamp"))
+                for b in content:
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get("type") == "tool_use" and b.get("name") == "Bash":
+                        cmd = (b.get("input") or {}).get("command", "")
+                        if "scripts/fev.sh" in cmd and "grep" not in cmd and "cat " not in cmd:
+                            runs.append({"id": b.get("id"), "ts": ts, "command": cmd[:300]})
+                    elif b.get("type") == "tool_result":
+                        c = b.get("content")
+                        if isinstance(c, list):
+                            c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
+                        results[b.get("tool_use_id")] = str(c)
+    except OSError:
+        return []
+    for r in runs:
+        r["output"] = results.get(r["id"], "")[:6000]
+    runs = [r for r in runs if r["ts"] is not None]
+    runs.sort(key=lambda r: r["ts"])
+    return runs
+
+
+# Correlate a checkpoint to the fev.sh run that produced it: the last run that started
+# at or before the checkpoint was written. Surfaces the FEV output (the EQY error on a
+# failed attempt, the proof on a pass) so each step's "why" is visible from the transcript.
+def fevlog_for_step(mod, step_key):
+    if mod.get("flavor") != "gen2":
+        return {"found": False, "reason": "fev log correlation is gen2-only"}
+    tpath = module_transcript(mod)
+    if not tpath:
+        return {"found": False, "reason": "no transcript captured for this module"}
+    runs = fev_runs_from_transcript(tpath)
+    if not runs:
+        return {"found": False, "reason": "no fev.sh runs found in transcript"}
+    try:
+        ck_mtime = safe_mtime(resolve_in_module(mod, step_key, "status.json"))
+    except PermissionError:
+        ck_mtime = None
+    if ck_mtime:
+        before = [r for r in runs if r["ts"] <= ck_mtime + 5]
+        chosen = before[-1] if before else min(runs, key=lambda r: abs(r["ts"] - ck_mtime))
+    else:
+        chosen = runs[-1]
+    return {"found": True, "command": chosen["command"], "ts": chosen["ts"],
+            "output": chosen["output"], "runs": len(runs),
+            "transcript": os.path.basename(tpath)}
+
+
 def live_state(mod):
     d = mod["path"]
     hist = os.path.join(d, "history")
@@ -781,6 +864,9 @@ class Handler(BaseHTTPRequestHandler):
             sid = q.get("id", [""])[0]
             mod = get_mod(q) if sid.startswith("repo/") else None
             return self.send_json(load_session(sid, mod))
+        if route == "/api/fevlog":
+            mod = get_mod(q)
+            return self.send_json(fevlog_for_step(mod, q.get("step", [""])[0]))
         return self.send_json({"error": "unknown endpoint"}, 404)
 
     def static(self, route):

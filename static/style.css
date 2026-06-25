@@ -807,3 +807,30 @@ mark { padding: 0 1px; }
 .td.add { background: #e6f7ee; color: var(--green-dk); border-left: 3px solid var(--green); }
 .td.del { background: #fdeceb; color: var(--red-dk); border-left: 3px solid var(--red); text-decoration: line-through; }
 .tracker-full > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 0; user-select: none; }
+
+/* FEV-output-per-step panel */
+.fev-out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono, ui-monospace, "JetBrains Mono", monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 14px 16px;
+  margin: 0;
+  background: var(--surface-raised, #14171c);
+  border: 1px solid var(--border, #2a2f37);
+  border-radius: 8px;
+  overflow-x: auto;
+  max-height: 60vh;
+}
+.fev-out .fev-err { color: #ff8a8a; font-weight: 600; }
+.fev-out .fev-ok { color: #7ee0a8; }
+.fev-verdict {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.fev-verdict.ok { background: rgba(126,224,168,0.14); color: #7ee0a8; }
+.fev-verdict.err { background: rgba(255,138,138,0.14); color: #ff8a8a; }

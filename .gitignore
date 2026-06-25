@@ -5,3 +5,4 @@ PROGRESS.md
 DESIGN.md
 make_handoff.py
 tests/check_clean.py
+demo/

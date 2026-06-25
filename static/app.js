@@ -396,7 +396,7 @@ function renderExBanner() {
 
 const EXTABS = [
   ["diff", "Diff"], ["files", "Files"], ["prompt", "Prompt"],
-  ["notes", "Status"], ["tracker", "Tracker"], ["sessions", "Sessions"],
+  ["notes", "Status"], ["fev", "FEV"], ["tracker", "Tracker"], ["sessions", "Sessions"],
 ];
 
 function renderExTabs() {
@@ -417,7 +417,7 @@ function renderExTabs() {
 function renderExPanel() {
   const p = $("#ex-panel");
   p.innerHTML = `<div class="note">loading…</div>`;
-  const fns = { diff: exDiff, files: exFiles, prompt: exPrompt, notes: exNotes, tracker: exTracker, sessions: exSessions };
+  const fns = { diff: exDiff, files: exFiles, prompt: exPrompt, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
   (fns[state.exTab] || exDiff)(p).catch((e) => {
     p.innerHTML = `<div class="note">⚠ ${esc(e.message)}</div>`;
   });
@@ -605,6 +605,32 @@ async function exTracker(p) {
     <div class="panel-toolbar"><span>${prevHas ? `What the agent added to <code>tracker.md</code> at step ${s.n}` : `Tracker at step ${s.n}`}</span></div>
     ${prevHas ? `<div class="tracker-diff">${diffHtml}</div>` : ""}
     <details class="tracker-full"${prevHas ? "" : " open"}><summary>Full tracker at this step</summary><div class="md-card md">${md(cur.content)}</div></details>`;
+}
+
+async function exFev(p) {
+  const d = state.detail, s = curStep();
+  const j = await api("fevlog", { mod: d.module.id, step: s.key });
+  if (!j.found) {
+    p.innerHTML = `<div class="note"><b>No correlated FEV output:</b> ${esc(j.reason || "unavailable")}.<br><br>
+      This panel pulls the <code>fev.sh</code> output the agent saw for this step out of the captured transcript,
+      so it needs a transcript in <code>transcripts/</code>.</div>`;
+    return;
+  }
+  const fev = s.fev || "";
+  const pass = /^0:/.test(fev);
+  const lines = (j.output || "").split("\n").map((l) => {
+    const cls = /\b(FAIL|UNKNOWN|ERROR|Failed|FATAL|SyntaxError|Traceback)\b|not equival/i.test(l) ? "fev-err"
+      : /Successfully proved|All FEV runs successful|^0: /.test(l) ? "fev-ok" : "";
+    return cls ? `<span class="${cls}">${esc(l)}</span>` : esc(l);
+  }).join("\n");
+  p.innerHTML = `
+    <div class="panel-toolbar">
+      <span>FEV result the agent saw at step ${s.n}
+        <span class="muted">(transcript ${esc(j.transcript)}, ${j.runs} fev.sh runs)</span></span>
+      <span class="fev-verdict ${pass ? "ok" : "err"}">${esc(fev)}</span>
+    </div>
+    <div class="panel-toolbar"><span class="muted"><code>${esc(j.command)}</code></span></div>
+    <pre class="fev-out">${lines}</pre>`;
 }
 
 function noSessionsHelp() {
