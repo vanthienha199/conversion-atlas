@@ -303,12 +303,19 @@ function renderExTimeline() {
     list.className = "tl-group-steps";
     grp.items.forEach(({ s, idx }) => {
       const st = stepStatus(s);
+      const nochange = st.state === "none";  // captured by prep/get_task, no FEV step ran
+      const baseline = nochange && idx === 0;
       const b = document.createElement("button");
-      b.className = `tl-step ${st.state}` + (idx === state.stepIdx ? " active" : "");
-      b.title = st.state === "fail" ? st.label : (s.llm || "");
+      b.className = `tl-step ${st.state}` + (nochange ? " nochange" : "") + (idx === state.stepIdx ? " active" : "");
+      b.title = st.state === "fail" ? st.label
+        : baseline ? "prepared baseline (no source change yet)"
+        : nochange ? "no source change for this task" : (s.llm || "");
+      const right = nochange
+        ? `<span class="nc-tag">${baseline ? "baseline" : "no change"}</span>`
+        : `<span class="dur">${esc(s.duration || "")}</span>`;
       b.innerHTML = `<span class="ic">${icon[st.state]}</span>
         <span>Step ${esc(String(s.n))}</span>
-        <span class="dur">${esc(s.duration || "")}</span>`;
+        ${right}`;
       b.onclick = () => gotoStep(idx);
       list.appendChild(b);
     });
