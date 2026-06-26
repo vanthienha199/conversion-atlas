@@ -438,18 +438,67 @@ async function fileDiffRows(f, s, d) {
   return dj.rows;
 }
 
+// Diff rows for one file at an arbitrary step index (independent of the page's step).
+async function fileDiffRowsAt(fname, idx, d) {
+  let ep;
+  if (idx === 0) {
+    const base = d.flavor === "gen2" && d.root_files.includes("prepared.sv") && fname === "wip.tlv" ? "prepared.sv" : null;
+    ep = { a_step: base ? "root" : d.steps[0].key, a_name: base || fname, b_step: d.steps[0].key, b_name: fname };
+  } else {
+    const prev = d.steps[idx - 1], s = d.steps[idx];
+    const pkey = prev.reverted_to ? prev.key.split("/").slice(0, -1).concat(prev.reverted_to).join("/") : prev.key;
+    ep = { a_step: pkey, a_name: fname, b_step: s.key, b_name: fname };
+  }
+  const dj = await api("diff", { mod: d.module.id, ...ep });
+  return dj.rows;
+}
+
+// A single-file diff that you can step through checkpoint by checkpoint, keeping
+// this one file in view. The page's selected step is the starting point.
+function mountFileStepper(host, fname, d) {
+  let idx = state.stepIdx;
+  host.innerHTML = `
+    <div class="fstep-bar">
+      <button class="btn-mini fstep-prev" title="previous step">◀ prev</button>
+      <span class="fstep-label"></span>
+      <button class="btn-mini fstep-next" title="next step">next ▶</button>
+    </div>
+    <div class="fstep-diff"><div class="note">loading…</div></div>`;
+  const label = host.querySelector(".fstep-label");
+  const diffHost = host.querySelector(".fstep-diff");
+  const prevBtn = host.querySelector(".fstep-prev");
+  const nextBtn = host.querySelector(".fstep-next");
+  async function render() {
+    prevBtn.disabled = idx <= 0;
+    nextBtn.disabled = idx >= d.steps.length - 1;
+    const s = d.steps[idx];
+    label.textContent = `step ${s.n} of ${d.steps.length}${s.task ? " · " + s.task : ""}`;
+    const aLabel = (idx === 0 && fname === "wip.tlv") ? "original Verilog" : idx > 0 ? `step ${d.steps[idx - 1].n}` : "before";
+    diffHost.innerHTML = `<div class="note">loading…</div>`;
+    try {
+      const rows = await fileDiffRowsAt(fname, idx, d);
+      renderSxS(diffHost, rows, aLabel, `step ${s.n}`);
+    } catch (e) {
+      diffHost.innerHTML = `<div class="note">${esc(e.message)}</div>`;
+    }
+  }
+  prevBtn.onclick = () => { if (idx > 0) { idx--; render(); } };
+  nextBtn.onclick = () => { if (idx < d.steps.length - 1) { idx++; render(); } };
+  render();
+}
+
 async function exDiff(p) {
   const d = state.detail, s = curStep();
+  const META = new Set(["task.md", "tracker.md"]);  // shown under Prompt/Tracker, not the code diff
   const allFiles = s.files && s.files.length ? s.files : d.root_files;
   let changes = null;
   try { changes = await api("changes", { mod: d.module.id, step: s.key }); } catch (_) {}
-  const fileList = changes ? changes.files
-    : allFiles.map((n) => ({ name: n, status: "U", added: 0, removed: 0 }));
+  const fileList = (changes ? changes.files
+    : allFiles.map((n) => ({ name: n, status: "U", added: 0, removed: 0 })))
+    .filter((f) => !META.has(f.name));
   const changed = fileList.filter((f) => f.status !== "U");
   const unchanged = fileList.filter((f) => f.status === "U");
-  const nChanged = changes ? changes.changed : 0;
-  const prev = state.stepIdx > 0 ? d.steps[state.stepIdx - 1] : null;
-  const a0 = state.stepIdx === 0;
+  const nChanged = changed.length;
   const show = changed.length ? changed : fileList;
   p.innerHTML = `
     <div class="panel-toolbar diff-toolbar">
@@ -466,12 +515,9 @@ async function exDiff(p) {
     const sec = document.createElement("details");
     sec.className = "fdiff";
     sec.open = true;
-    sec.innerHTML = `<summary>${badge}<span class="fc-name">${esc(f.name)}</span>${counts}</summary><div class="fdiff-body"><div class="note">loading…</div></div>`;
+    sec.innerHTML = `<summary>${badge}<span class="fc-name">${esc(f.name)}</span>${counts}</summary><div class="fdiff-body"></div>`;
     stack.appendChild(sec);
-    const aLabel = (a0 && f.name === "wip.tlv") ? "original Verilog" : prev ? `step ${prev.n}` : "before";
-    fileDiffRows(f, s, d)
-      .then((rows) => renderSxS(sec.querySelector(".fdiff-body"), rows, aLabel, `step ${s.n}`))
-      .catch((e) => { sec.querySelector(".fdiff-body").innerHTML = `<div class="note">${esc(e.message)}</div>`; });
+    mountFileStepper(sec.querySelector(".fdiff-body"), f.name, d);
   }
   const uc = $("#ex-unchanged");
   if (uc) {
@@ -588,23 +634,34 @@ function trackerDiff(rows) {
 
 async function exTracker(p) {
   const d = state.detail, s = curStep();
-  if (!(s.files || []).includes("tracker.md")) {
-    const tj = await api("tracker", { mod: d.module.id });
-    p.innerHTML = `<div class="md-card md">${md(tj.markdown)}</div>`;
-    return;
+  const hasCur = (s.files || []).includes("tracker.md");
+  const next = state.stepIdx < d.steps.length - 1 ? d.steps[state.stepIdx + 1] : null;
+  const nextHas = next && (next.files || []).includes("tracker.md");
+
+  // fev.sh snapshots the checkpoint before the agent writes its notes, so a step's
+  // tracker reflection lands in the next checkpoint (or the working-dir tracker for
+  // the last step). Show that "after" tracker, plus the diff vs this step's snapshot.
+  const before = hasCur ? (await api("file", { mod: d.module.id, step: s.key, name: "tracker.md" })).content : "";
+  let after = "", afterLabel = "", afterStep = null;
+  if (nextHas) {
+    after = (await api("file", { mod: d.module.id, step: next.key, name: "tracker.md" })).content;
+    afterStep = next.key; afterLabel = `step ${next.n}`;
+  } else {
+    after = (await api("tracker", { mod: d.module.id })).markdown || "";
+    afterLabel = "working dir (latest)";
   }
-  const prev = state.stepIdx > 0 ? d.steps[state.stepIdx - 1] : null;
-  const prevHas = prev && (prev.files || []).includes("tracker.md");
-  const cur = await api("file", { mod: d.module.id, step: s.key, name: "tracker.md" });
   let diffHtml = "";
-  if (prevHas) {
-    const dj = await api("diff", { mod: d.module.id, a_step: prev.key, a_name: "tracker.md", b_step: s.key, b_name: "tracker.md" });
+  if (hasCur) {
+    const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: "tracker.md",
+                                   b_step: afterStep || "root", b_name: "tracker.md" });
     diffHtml = trackerDiff(dj.rows);
   }
   p.innerHTML = `
-    <div class="panel-toolbar"><span>${prevHas ? `What the agent added to <code>tracker.md</code> at step ${s.n}` : `Tracker at step ${s.n}`}</span></div>
-    ${prevHas ? `<div class="tracker-diff">${diffHtml}</div>` : ""}
-    <details class="tracker-full"${prevHas ? "" : " open"}><summary>Full tracker at this step</summary><div class="md-card md">${md(cur.content)}</div></details>`;
+    <div class="panel-toolbar"><span>What the agent recorded about step ${s.n}
+      <span class="muted">(written after FEV, captured in ${esc(afterLabel)})</span></span></div>
+    ${diffHtml ? `<div class="tracker-diff">${diffHtml}</div>` : `<div class="note">No tracker notes recorded for this step.</div>`}
+    <details class="tracker-full" open><summary>Tracker after this step (${esc(afterLabel)})</summary><div class="md-card md">${md(after)}</div></details>
+    <details class="tracker-full"><summary>Tracker as captured at this step, before the agent reflected</summary><div class="md-card md">${md(before)}</div></details>`;
 }
 
 async function exFev(p) {
@@ -651,7 +708,7 @@ function costSummary(c) {
   const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
   const models = Object.keys(c.by_model || {}).map((m) => m.replace(/^claude-/, "")).join(", ");
   const dollars = c.usd < 1 ? "$" + c.usd.toFixed(4) : "$" + c.usd.toFixed(2);
-  return `<div class="cost-bar"><b>${dollars}</b> · ${k(c.input)} in / ${k(c.output)} out · ${k(c.cache_read)} cached${models ? " · " + esc(models) : ""}</div>`;
+  return `<div class="cost-bar"><b>${dollars}</b> <span class="cost-est" title="Estimated from the transcript's token usage at public list prices. Actual billing may differ; check the provider's cost dashboard.">est. · list price</span> · ${k(c.input)} in / ${k(c.output)} out · ${k(c.cache_read)} cached${models ? " · " + esc(models) : ""}</div>`;
 }
 
 async function exSessions(p) {
