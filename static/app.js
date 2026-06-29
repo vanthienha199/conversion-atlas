@@ -402,7 +402,7 @@ function renderExBanner() {
 }
 
 const EXTABS = [
-  ["diff", "Diff"], ["files", "Files"], ["prompt", "Prompt"],
+  ["diff", "Diff"], ["files", "Files"],
   ["notes", "Status"], ["fev", "FEV"], ["tracker", "Tracker"], ["sessions", "Sessions"],
 ];
 
@@ -424,7 +424,7 @@ function renderExTabs() {
 function renderExPanel() {
   const p = $("#ex-panel");
   p.innerHTML = `<div class="note">loading…</div>`;
-  const fns = { diff: exDiff, files: exFiles, prompt: exPrompt, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
+  const fns = { diff: exDiff, files: exFiles, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
   (fns[state.exTab] || exDiff)(p).catch((e) => {
     p.innerHTML = `<div class="note">⚠ ${esc(e.message)}</div>`;
   });
@@ -628,15 +628,27 @@ async function exNotes(p) {
   p.innerHTML = `<div class="kv">${rows}</div>`;
 }
 
-function trackerDiff(rows) {
+// Block-level diff of two markdown documents, rendered. Split each into blocks,
+// LCS-diff the blocks, and show the changed ones as formatted markdown (added in
+// green, removed in red). Keeps markdown formatting while highlighting what changed,
+// which a plain text diff can't do.
+function renderedTrackerDiff(before, after) {
+  const blocks = (t) => (t || "").split(/\n{2,}/).map((b) => b.replace(/\s+$/, "")).filter((b) => b.trim());
+  const A = blocks(before), B = blocks(after), n = A.length, m = B.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
   const out = [];
-  for (const r of rows) {
-    const [t, an, at, bn, bt] = r;
-    if (t === "add") out.push(`<div class="td add">${esc(bt)}</div>`);
-    else if (t === "del") out.push(`<div class="td del">${esc(at)}</div>`);
-    else if (t === "chg") { out.push(`<div class="td del">${esc(at)}</div>`); out.push(`<div class="td add">${esc(bt)}</div>`); }
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(["del", A[i++]]);
+    else out.push(["add", B[j++]]);
   }
-  return out.length ? out.join("") : `<div class="note">No change to the tracker at this step.</div>`;
+  while (i < n) out.push(["del", A[i++]]);
+  while (j < m) out.push(["add", B[j++]]);
+  return out.map(([t, text]) => `<div class="tdr ${t}"><div class="md">${md(text)}</div></div>`).join("");
 }
 
 async function exTracker(p) {
@@ -657,12 +669,7 @@ async function exTracker(p) {
     after = (await api("tracker", { mod: d.module.id })).markdown || "";
     afterLabel = "working dir (latest)";
   }
-  let diffHtml = "";
-  if (hasCur) {
-    const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: "tracker.md",
-                                   b_step: afterStep || "root", b_name: "tracker.md" });
-    diffHtml = trackerDiff(dj.rows);
-  }
+  const diffHtml = hasCur ? renderedTrackerDiff(before, after) : "";
   p.innerHTML = `
     <div class="panel-toolbar"><span>What the agent recorded about step ${s.n}
       <span class="muted">(written after FEV, captured in ${esc(afterLabel)})</span></span></div>
@@ -759,9 +766,36 @@ function renderStep() {
   renderExHeader();
   renderExTimeline();
   renderExBanner();
+  renderTaskHeader();
   renderExTabs();
   renderExPanel();
   syncHash();
+}
+
+// The task being worked on, as a collapsible header above the tabs, so the task is
+// visible (and its description reachable) regardless of which tab is open.
+async function renderTaskHeader() {
+  const host = $("#ex-task");
+  if (!host) return;
+  const d = state.detail, s = curStep();
+  const name = s.task || (d.current && d.current.task) || "";
+  if (!name) { host.innerHTML = ""; return; }
+  host.innerHTML = `<details class="task-header">
+    <summary><span class="th-label">Task</span><span class="th-name">${esc(name)}</span><span class="th-hint">description</span></summary>
+    <div class="th-body"><div class="note">loading…</div></div></details>`;
+  const body = host.querySelector(".th-body");
+  try {
+    if (d.flavor === "gen1") { await renderGen1Prompt(body, s); return; }
+    if ((s.files || []).includes("task.md")) {
+      const fj = await api("file", { mod: d.module.id, step: s.key, name: "task.md" });
+      body.innerHTML = `<div class="md-card md">${md(fj.content)}</div>`;
+      return;
+    }
+    body.innerHTML = `<div class="md-card md"></div>`;
+    await loadTaskInstructions(body.querySelector(".md-card"), name);
+  } catch (e) {
+    body.innerHTML = `<div class="note">${esc(e.message)}</div>`;
+  }
 }
 
 function gotoStep(idx) {

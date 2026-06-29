@@ -850,3 +850,23 @@ mark { padding: 0 1px; }
 .tl-step.nochange.active { opacity: 1; }
 .tl-step.nochange .ic { color: var(--faint); }
 .nc-tag { margin-left: auto; font-size: 0.7rem; font-style: italic; color: var(--faint); white-space: nowrap; }
+
+/* collapsible task header above the tabs */
+.task-header { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; background: var(--paper); }
+.task-header > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 0.9rem;
+}
+.task-header > summary::-webkit-details-marker { display: none; }
+.task-header > summary::after { content: "▾"; color: var(--faint); transition: transform 150ms ease-out; }
+.task-header:not([open]) > summary::after { transform: rotate(-90deg); }
+.task-header .th-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); }
+.task-header .th-name { font-weight: 700; color: var(--navy); }
+.task-header .th-hint { margin-left: auto; font-size: 0.75rem; color: var(--faint); }
+.task-header .th-body { padding: 12px 14px 4px; border-top: 1px solid var(--line); max-height: 50vh; overflow-y: auto; }
+
+/* rendered (formatted) tracker diff blocks */
+.tracker-diff .tdr { border-left: 3px solid transparent; border-radius: 6px; padding: 2px 12px; margin: 8px 0; }
+.tracker-diff .tdr.add { border-left-color: var(--green); background: rgba(43,194,106,0.08); }
+.tracker-diff .tdr.del { border-left-color: var(--red); background: rgba(255,87,87,0.07); }
+.tracker-diff .tdr.del .md { opacity: 0.65; }

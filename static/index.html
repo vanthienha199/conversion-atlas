@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Conversion Atlas · Verilog → TL-Verilog history</title>
+<title>Conversion Console · Verilog → TL-Verilog history</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%2310162F'/><circle cx='50' cy='50' r='20' fill='none' stroke='%23FFD300' stroke-width='8'/></svg>">
 </head>
 <body>
 
 <header id="topbar">
   <div class="tb-left">
-    <span class="tb-wordmark">Conversion Atlas</span>
+    <span class="tb-wordmark">Conversion Console</span>
     <div class="tb-lesson">
       <select id="module-select" aria-label="Choose a conversion module">
         <option value="">Choose a module…</option>
@@ -64,6 +64,7 @@
     </aside>
     <section id="ex-content">
       <div id="ex-banner"></div>
+      <div id="ex-task"></div>
       <nav id="ex-tabs" role="tablist"></nav>
       <section id="ex-panel" role="tabpanel"></section>
     </section>
@@ -75,7 +76,7 @@
 
     <header class="guide-hero">
       <span class="guide-eyebrow">Guide</span>
-      <h1>Using Conversion Atlas</h1>
+      <h1>Using the Conversion Console</h1>
       <p>A local control panel for the Verilog to TL-Verilog conversion flow. It watches the
          conversion's <code>history/</code> directory and shows what the AI agent did at each
          step, live as it works. Read-only, no setup beyond Python.</p>
@@ -117,14 +118,14 @@ python3 server.py path/to/serv/tlv</pre>
 
     <section class="guide-sec">
       <h2>3. Read each step</h2>
-      <p>The tabs on the right cover one checkpoint at a time:</p>
+      <p>The task being worked on shows in a collapsible header above the tabs, expand it for the
+         task description. The tabs on the right cover one checkpoint at a time:</p>
       <ul class="guide-list">
         <li><b>Diff</b> shows what changed since the previous step, side by side. The file row marks
             which files changed (M added/modified, with line counts) and floats the FEV
             <code>.eqy</code> to the top when the agent remapped signals to get FEV to pass.
             Inside a changed line, only the changed words are highlighted.</li>
         <li><b>Files</b> lets you open any file saved at that checkpoint, or in the working directory.</li>
-        <li><b>Prompt</b> shows the task instructions the agent was following.</li>
         <li><b>Status</b> is the raw <code>status.json</code> for the step.</li>
         <li><b>Tracker</b> is the agent's running <code>tracker.md</code> notes.</li>
         <li><b>Sessions</b> renders the agent's full conversation when a transcript is available.</li>
@@ -184,6 +185,6 @@ python3 server.py path/to/serv/tlv</pre>
   </div>
 </div>
 
-<script src="app.js?v=25"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
