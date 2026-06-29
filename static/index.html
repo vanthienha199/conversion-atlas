@@ -77,90 +77,129 @@
     <header class="guide-hero">
       <span class="guide-eyebrow">Guide</span>
       <h1>Using the Conversion Console</h1>
-      <p>A local control panel for the Verilog to TL-Verilog conversion flow. It watches the
-         conversion's <code>history/</code> directory and shows what the AI agent did at each
-         step, live as it works. Read-only, no setup beyond Python.</p>
+      <p>A local, read-only console for the Verilog to TL-Verilog conversion flow. It watches a
+         conversion's <code>history/</code> directory and the agent's transcript, and shows what the
+         AI did at every step, live as it works. No setup beyond Python, and it never changes your
+         files. The <b>Explore / Guide</b> toggle in the top bar switches between the working view
+         and this guide.</p>
     </header>
 
     <section class="guide-sec">
       <h2>Launch it</h2>
-      <p>Run the server in your conversion repo and open the printed URL.</p>
-      <pre class="guide-code"># auto-detect the conversion dirs in the current repo
+      <p>Run the server in your conversion repo, or point it at a path, then open the printed URL.</p>
+      <pre class="guide-code"># auto-detect conversion dirs in the current repo
 python3 server.py
 
-# or point it at a specific path
+# or point it at a specific path (one module or a whole tree)
 python3 server.py path/to/serv/tlv</pre>
-      <p>Then open <code>http://127.0.0.1:8765</code>. No dependencies beyond Python 3.8+, no build step.</p>
+      <p>Open <code>http://127.0.0.1:8765</code>. Python 3.8+, no npm, no build step.</p>
     </section>
 
     <section class="guide-sec">
-      <h2>1. Pick a module and walk its history</h2>
-      <p>Choose a conversion from the dropdown in the top bar. The left panel is the
-         <b>History</b>: every checkpoint the flow recorded, grouped by task. Click a step,
-         or use the arrow keys, to move through the conversion.</p>
+      <h2>1. Pick a module</h2>
+      <p>Use the dropdown in the top bar. It lists every conversion the server found, with each
+         module's step count and flavor (<b>Gen 2</b> agentic, or <b>Gen 1</b> prompt-driven). The
+         module header then shows the path, the module name, the flavor, the checkpoint and task
+         counts, and whether the conversion is <i>complete</i> (only when it actually finished) or
+         <i>in progress</i> with how many checkpoints passed FEV.</p>
+    </section>
+
+    <section class="guide-sec">
+      <h2>2. Walk the history (left panel)</h2>
+      <p>The left panel is the <b>History</b>: every checkpoint the flow recorded, grouped into
+         lanes by task. Click a step, or use the up and down arrow keys, to move through the
+         conversion.</p>
+      <ul class="guide-list">
+        <li>Each step shows its real FEV result: a green check if it passed, a red cross with the
+            reason if it failed (for example <code>SandPiper failed</code> or
+            <code>Incremental FEV failed</code>).</li>
+        <li>Steps that ran no FEV are dimmed with a tag: <b>no change</b> for a task the agent
+            completed without touching the code, and <b>baseline</b> for the prepared starting point.
+            They keep the task flow complete without implying work happened.</li>
+        <li>The <b>difficulty profile</b> above the timeline draws one bar per task: bar height is the
+            checkpoint count, and the color gets warmer the more FEV failed there. Tall and warm is a
+            task the agent fought, which is where the instructions likely need work. Click a bar to
+            jump to it.</li>
+      </ul>
       <figure class="guide-shot">
         <img src="guide/explore.png" alt="The Explore view: history timeline on the left, step details on the right" loading="lazy">
-        <figcaption>Explore: the task-grouped history on the left, the selected step on the right.</figcaption>
+        <figcaption>Explore: task-grouped history on the left, the selected step on the right.</figcaption>
       </figure>
     </section>
 
     <section class="guide-sec">
-      <h2>2. See where the agent struggled</h2>
-      <p>Above the timeline, the <b>difficulty profile</b> draws one bar per task. The bar height
-         is the number of checkpoints in that task; the color gets warmer the more times FEV
-         failed there. Tall and warm means the agent fought that task, which is where the
-         instructions probably need work. Click a bar to jump to it.</p>
-      <p>Each step shows its real verification result: a green check if FEV passed, a red cross
-         with the reason if it failed (for example <code>SandPiper failed</code> or
-         <code>Incremental FEV failed</code>), and a neutral dot for setup steps with no FEV.
-         The module header reads <i>complete</i> only when the conversion actually finished.</p>
+      <h2>3. The task header</h2>
+      <p>Above the tabs is a collapsible <b>Task</b> header. It always shows the name of the task
+         being worked on, so you keep it in view on any tab, and it expands to the full task
+         description, the instructions the agent was following at that step.</p>
     </section>
 
     <section class="guide-sec">
-      <h2>3. Read each step</h2>
-      <p>The task being worked on shows in a collapsible header above the tabs, expand it for the
-         task description. The tabs on the right cover one checkpoint at a time:</p>
+      <h2>4. Read each step (the tabs)</h2>
       <ul class="guide-list">
-        <li><b>Diff</b> shows what changed since the previous step, side by side. The file row marks
-            which files changed (M added/modified, with line counts) and floats the FEV
-            <code>.eqy</code> to the top when the agent remapped signals to get FEV to pass.
-            Inside a changed line, only the changed words are highlighted.</li>
-        <li><b>Files</b> lets you open any file saved at that checkpoint, or in the working directory.</li>
-        <li><b>Status</b> is the raw <code>status.json</code> for the step.</li>
-        <li><b>Tracker</b> is the agent's running <code>tracker.md</code> notes.</li>
-        <li><b>Sessions</b> renders the agent's full conversation when a transcript is available.</li>
+        <li><b>Diff</b>: a side-by-side diff of each changed file versus the previous step, with
+            unchanged regions collapsed and only the changed words highlighted. The file list marks
+            what changed (M/A/D with line counts). Each file has <b>prev</b> and <b>next</b> buttons
+            so you can step that one file through the checkpoints with it staying in view, handy for
+            watching <code>wip.tlv</code> evolve from Verilog to TL-Verilog. A <b>vs original
+            Verilog</b> button compares the current TLV against the starting point.</li>
+        <li><b>Files</b>: open any file saved at this checkpoint, or in the working directory.</li>
+        <li><b>Status</b>: the raw <code>status.json</code> for the step.</li>
+        <li><b>FEV</b>: the actual <code>fev.sh</code> output the agent saw at this step, pulled from
+            the transcript and lined up with the checkpoint. On a failed step the EQY failure
+            analysis is highlighted, so you can see why it failed without opening logs.</li>
+        <li><b>Tracker</b>: what the agent recorded about this step. fev.sh snapshots the checkpoint
+            before the agent writes its notes, so a step's notes land in the next checkpoint; the
+            console shows the diff of this step versus the next, rendered as markdown with added
+            blocks in green, plus the full after- and before-trackers, collapsible.</li>
+        <li><b>Sessions</b>: the agent's full conversation when a transcript is available, with a cost
+            estimate at the top (see the note below).</li>
       </ul>
       <figure class="guide-shot">
         <img src="guide/diff.png" alt="The Diff tab showing a side-by-side diff with the changed file marked" loading="lazy">
-        <figcaption>Diff: changed files are marked, and the side-by-side view collapses unchanged regions.</figcaption>
+        <figcaption>Diff: changed files are marked, unchanged regions collapse, and each file has its own step controls.</figcaption>
       </figure>
     </section>
 
     <section class="guide-sec">
-      <h2>4. Watch a conversion live</h2>
-      <p>When a conversion is running on this machine, the tool follows it in real time over a
+      <h2>5. Watch a conversion live</h2>
+      <p>When a conversion is running on this machine, the console follows it in real time over a
          live connection to the <code>history/</code> directory. The <b>Live</b> dot turns green,
-         new checkpoints appear and flash as they land, and a strip at the top tells you whether
-         the agent is working or <b>possibly stuck</b> (it has been retrying FEV without landing a
-         new checkpoint). Use the <b>Follow</b> toggle to keep the newest step in view, or turn it
-         off to inspect history without being pulled forward.</p>
+         new checkpoints appear and flash as they land, and a strip at the top says whether the agent
+         is working or <b>possibly stuck</b> (retrying FEV without landing a new checkpoint). Use the
+         <b>Follow</b> toggle to keep the newest step in view, or turn it off to inspect history
+         without being pulled forward.</p>
     </section>
 
     <section class="guide-sec">
-      <h2>How the conversion works</h2>
-      <p>The agent converts a Verilog module to TL-Verilog in many small steps. After each change
-         it runs <code>fev.sh</code>, which uses formal equivalence verification to prove the new
-         code behaves identically to the previous version. Only when that proof passes does the
-         flow record a checkpoint into <code>history/NNN/</code> with the code, the FEV config, and
-         the status. That is why a clean conversion is a long sequence of individually proven
-         steps, and why a task that took many checkpoints is one the agent found hard.</p>
-      <p>This tool only reads that directory. It never changes your files.</p>
+      <h2>How the conversion flow works</h2>
+      <p>In the Gen 2 flow the agent does the whole conversion from one prompt: it edits
+         <code>wip.tlv</code>, runs <code>./scripts/fev.sh</code> to verify the change, debugs, and
+         repeats, advancing through a fixed list of refactoring tasks with
+         <code>get_task.py next</code>.</p>
+      <p><code>fev.sh</code> runs SandPiper (TL-Verilog to Verilog) and formal equivalence
+         verification with EQY to prove the new code behaves identically, first incrementally versus
+         the last good version, then a full check versus the original Verilog. It records a checkpoint
+         into <code>history/NNN/</code> after the status is written, so a passing step reads honestly
+         and each failed attempt gets its own checkpoint you can diff.</p>
+      <p>Every task gets a history entry, even ones that change no code: the prepared baseline is
+         recorded by <code>prep.sh</code>, and <code>get_task.py</code> records a snapshot for a
+         no-op task when nothing else did. That is what fills the dimmed steps in the timeline. The
+         console reads this directory and the transcript only; it never changes your files.</p>
+    </section>
+
+    <section class="guide-sec">
+      <h2>A note on cost</h2>
+      <p>The dollar figure on the Sessions tab is an <b>estimate</b> computed from the transcript's
+         token usage at public list prices. The real billed amount is on your AI provider's cost
+         dashboard and can differ. Model choice dominates cost: a heavier model can run several times
+         the cost of a lighter one for the same conversion.</p>
     </section>
 
     <footer class="guide-foot">
       <p>Looking for TL-Verilog learning material? That lives separately, with the
          <a href="https://makerchip.com/" target="_blank" rel="noopener">Makerchip</a>
-         curriculum. This guide covers the tool and the conversion flow only.</p>
+         curriculum. This guide covers the console and the conversion flow only.</p>
     </footer>
 
   </article>
