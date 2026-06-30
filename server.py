@@ -555,6 +555,10 @@ def load_session(session_id, mod=None):
             raise PermissionError("bad session")
     msgs = []
     cost = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "usd": 0.0, "by_model": {}}
+    # The transcript logs each streamed assistant message several times, all with
+    # the same id and final usage. Count and show each id once, or the cost roughly
+    # doubles and the conversation shows triplicate turns.
+    seen_ids = set()
     with open(p, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
@@ -571,6 +575,11 @@ def load_session(session_id, mod=None):
                 continue
             msg = obj.get("message") or {}
             if t == "assistant":
+                mid = msg.get("id")
+                if mid is not None:
+                    if mid in seen_ids:
+                        continue
+                    seen_ids.add(mid)
                 accumulate_cost(cost, msg)
             if len(msgs) >= 4000:
                 continue
