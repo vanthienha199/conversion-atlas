@@ -562,7 +562,9 @@ function mountFileStepper(host, fname, d, opts = {}) {
     const s = d.steps[idx];
     const last = d.steps.length - 1;
     label.textContent = `step ${s.n} of ${d.steps.length}${s.task ? " · " + s.task : ""}${tracker ? " · notes about this step" : ""}`;
-    diffHost.innerHTML = `<div class="note">loading…</div>`;
+    // keep the previous content visible during the (fast, local) fetch so the
+    // panel does not collapse to a one-line "loading" and back, which shifts layout
+    if (!diffHost.querySelector(".sxs, .fullfile, .md-card")) diffHost.innerHTML = `<div class="note">loading…</div>`;
     try {
       if (tracker) {
         if (mode === "full") {
@@ -584,12 +586,23 @@ function mountFileStepper(host, fname, d, opts = {}) {
       diffHost.innerHTML = `<div class="note">${esc(e.message)}</div>`;
     }
   }
-  prevBtn.onclick = () => { if (idx > 0) { idx--; render(); } };
-  nextBtn.onclick = () => { if (idx < d.steps.length - 1) { idx++; render(); } };
-  pDelta.onclick = () => { const t = deltas.filter((i) => i < idx).pop(); if (t != null) { idx = t; render(); } };
-  nDelta.onclick = () => { const t = deltas.find((i) => i > idx); if (t != null) { idx = t; render(); } };
-  mDiff.onclick = () => { if (mode !== "diff") { mode = "diff"; render(); } };
-  mFull.onclick = () => { if (mode !== "full") { mode = "full"; render(); } };
+  // Re-render but keep the button bar at the same viewport position, so stepping
+  // does not make the page jump when the new content has a different height (most
+  // visible on the tracker, which is the last element and varies a lot per step).
+  async function anchoredRender() {
+    const sc = host.closest("#explore") || document.scrollingElement;
+    const bar = host.querySelector(".fstep-bar");
+    const before = bar.getBoundingClientRect().top;
+    await render();
+    const after = host.querySelector(".fstep-bar").getBoundingClientRect().top;
+    if (sc && Math.abs(after - before) > 0.5) sc.scrollTop += after - before;
+  }
+  prevBtn.onclick = () => { if (idx > 0) { idx--; anchoredRender(); } };
+  nextBtn.onclick = () => { if (idx < d.steps.length - 1) { idx++; anchoredRender(); } };
+  pDelta.onclick = () => { const t = deltas.filter((i) => i < idx).pop(); if (t != null) { idx = t; anchoredRender(); } };
+  nDelta.onclick = () => { const t = deltas.find((i) => i > idx); if (t != null) { idx = t; anchoredRender(); } };
+  mDiff.onclick = () => { if (mode !== "diff") { mode = "diff"; anchoredRender(); } };
+  mFull.onclick = () => { if (mode !== "full") { mode = "full"; anchoredRender(); } };
   render();
   (tracker ? trackerChangedIdxs(d) : changedStepsFor(fname, d)).then((idxs) => { deltas = idxs; render(); }).catch(() => {});
 }
