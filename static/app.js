@@ -462,36 +462,91 @@ async function fileDiffRowsAt(fname, idx, d) {
 
 // A single-file diff that you can step through checkpoint by checkpoint, keeping
 // this one file in view. The page's selected step is the starting point.
-function mountFileStepper(host, fname, d) {
+// Per-step changed-file map, fetched once per module and cached on d, so the
+// delta buttons can skip steps where a given file did not change.
+async function changedStepsFor(fname, d) {
+  if (!d._changesByStep) {
+    d._changesByStep = await Promise.all(
+      d.steps.map((s) => api("changes", { mod: d.module.id, step: s.key })
+        .then((c) => new Set((c.files || []).filter((f) => f.status !== "U").map((f) => f.name)))
+        .catch(() => null)));
+  }
+  const idxs = [];
+  d._changesByStep.forEach((set, i) => { if (set && set.has(fname)) idxs.push(i); });
+  return idxs;
+}
+
+// A per-file stepper. Two tiers of navigation: prev/next step (every checkpoint)
+// and prev/next delta (only checkpoints where THIS file changed). mode is "diff"
+// (side by side vs the previous version) or "full" (the whole file at that step).
+function mountFileStepper(host, fname, d, opts = {}) {
   let idx = state.stepIdx;
+  let mode = opts.mode || "diff";
+  let deltas = [];
   host.innerHTML = `
     <div class="fstep-bar">
-      <button class="btn-mini fstep-prev" title="previous step">◀ prev</button>
+      <button class="btn-mini fstep-pdelta" title="previous change to this file">⏮ prev change</button>
+      <button class="btn-mini fstep-prev" title="previous step">◀</button>
       <span class="fstep-label"></span>
-      <button class="btn-mini fstep-next" title="next step">next ▶</button>
+      <button class="btn-mini fstep-next" title="next step">▶</button>
+      <button class="btn-mini fstep-ndelta" title="next change to this file">next change ⏭</button>
+      <span class="fstep-modes">
+        <button class="btn-mini fstep-mdiff" title="side-by-side diff">Diff</button>
+        <button class="btn-mini fstep-mfull" title="whole file">Full file</button>
+      </span>
     </div>
     <div class="fstep-diff"><div class="note">loading…</div></div>`;
   const label = host.querySelector(".fstep-label");
   const diffHost = host.querySelector(".fstep-diff");
   const prevBtn = host.querySelector(".fstep-prev");
   const nextBtn = host.querySelector(".fstep-next");
+  const pDelta = host.querySelector(".fstep-pdelta");
+  const nDelta = host.querySelector(".fstep-ndelta");
+  const mDiff = host.querySelector(".fstep-mdiff");
+  const mFull = host.querySelector(".fstep-mfull");
   async function render() {
     prevBtn.disabled = idx <= 0;
     nextBtn.disabled = idx >= d.steps.length - 1;
+    pDelta.disabled = !deltas.some((i) => i < idx);
+    nDelta.disabled = !deltas.some((i) => i > idx);
+    mDiff.classList.toggle("on", mode === "diff");
+    mFull.classList.toggle("on", mode === "full");
     const s = d.steps[idx];
     label.textContent = `step ${s.n} of ${d.steps.length}${s.task ? " · " + s.task : ""}`;
-    const aLabel = (idx === 0 && fname === "wip.tlv") ? "original Verilog" : idx > 0 ? `step ${d.steps[idx - 1].n}` : "before";
     diffHost.innerHTML = `<div class="note">loading…</div>`;
     try {
-      const rows = await fileDiffRowsAt(fname, idx, d);
-      renderSxS(diffHost, rows, aLabel, `step ${s.n}`);
+      if (mode === "full") {
+        await renderFullFileAt(diffHost, fname, idx, d);
+      } else {
+        const aLabel = (idx === 0 && fname === "wip.tlv") ? "original Verilog" : idx > 0 ? `step ${d.steps[idx - 1].n}` : "before";
+        const rows = await fileDiffRowsAt(fname, idx, d);
+        renderSxS(diffHost, rows, aLabel, `step ${s.n}`);
+      }
     } catch (e) {
       diffHost.innerHTML = `<div class="note">${esc(e.message)}</div>`;
     }
   }
   prevBtn.onclick = () => { if (idx > 0) { idx--; render(); } };
   nextBtn.onclick = () => { if (idx < d.steps.length - 1) { idx++; render(); } };
+  pDelta.onclick = () => { const t = deltas.filter((i) => i < idx).pop(); if (t != null) { idx = t; render(); } };
+  nDelta.onclick = () => { const t = deltas.find((i) => i > idx); if (t != null) { idx = t; render(); } };
+  mDiff.onclick = () => { if (mode !== "diff") { mode = "diff"; render(); } };
+  mFull.onclick = () => { if (mode !== "full") { mode = "full"; render(); } };
   render();
+  changedStepsFor(fname, d).then((idxs) => { deltas = idxs; render(); }).catch(() => {});
+}
+
+// Whole-file view at a step, with changed lines highlighted vs the previous step
+// (green added, red removed). Uses the same diff rows but shows every line.
+async function renderFullFileAt(host, fname, idx, d) {
+  const rows = await fileDiffRowsAt(fname, idx, d);
+  // rows are [type, aLineNum, aText, bLineNum, bText]
+  const line = (r) => {
+    const cls = r[0] === "add" ? "l-add" : r[0] === "del" ? "l-del" : r[0] === "chg" ? "l-chg" : "";
+    const txt = r[0] === "del" ? (r[2] ?? "") : (r[4] ?? r[2] ?? "");
+    return `<div class="ffl ${cls}">${esc(txt)}</div>`;
+  };
+  host.innerHTML = `<div class="fullfile">${rows.map(line).join("")}</div>`;
 }
 
 async function exDiff(p) {
@@ -513,6 +568,7 @@ async function exDiff(p) {
       ${d.flavor === "gen2" ? `<button class="btn-mini" id="ex-vs-orig">vs original Verilog</button>` : ""}
     </div>
     <div id="ex-stack"></div>
+    <div id="ex-tracker-diff"></div>
     ${unchanged.length ? `<details class="diff-unchanged"><summary>${unchanged.length} unchanged file${unchanged.length === 1 ? "" : "s"}</summary><div class="file-grid" id="ex-unchanged"></div></details>` : ""}`;
   const stack = $("#ex-stack");
   for (const f of show) {
@@ -525,6 +581,28 @@ async function exDiff(p) {
     sec.innerHTML = `<summary>${badge}<span class="fc-name">${esc(f.name)}</span>${counts}</summary><div class="fdiff-body"></div>`;
     stack.appendChild(sec);
     mountFileStepper(sec.querySelector(".fdiff-body"), f.name, d);
+  }
+  // Tracker diff, shown next-vs-current (N vs N+1) because the agent writes the
+  // tracker after fev.sh records the checkpoint, so a step's notes land in the
+  // next checkpoint. This is the opposite direction from every other file.
+  const tHost = $("#ex-tracker-diff");
+  const curHasTracker = (s.files || []).includes("tracker.md");
+  const nextStep = state.stepIdx < d.steps.length - 1 ? d.steps[state.stepIdx + 1] : null;
+  if (tHost && curHasTracker) {
+    const sec = document.createElement("details");
+    sec.className = "fdiff tracker-in-diff";
+    sec.open = false;
+    sec.innerHTML = `<summary><span class="fc-name">tracker.md</span><span class="muted"> (next vs current, written after FEV)</span></summary><div class="fdiff-body"><div class="note">loading…</div></div>`;
+    tHost.appendChild(sec);
+    const body = sec.querySelector(".fdiff-body");
+    (async () => {
+      try {
+        const bStep = nextStep && (nextStep.files || []).includes("tracker.md") ? nextStep.key : "root";
+        const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: "tracker.md", b_step: bStep, b_name: "tracker.md" });
+        if (!dj.rows.some((r) => r[0] !== "eq")) { body.innerHTML = `<div class="note">No tracker change recorded at this step.</div>`; return; }
+        renderSxS(body, dj.rows, `step ${s.n}`, bStep === "root" ? "working dir (latest)" : `step ${nextStep.n}`);
+      } catch (e) { body.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
+    })();
   }
   const uc = $("#ex-unchanged");
   if (uc) {
@@ -590,14 +668,28 @@ async function exFiles(p) {
   const mk = (files, step) => files.map((f) =>
     `<button class="file-pill" data-step="${esc(step)}" data-name="${esc(f)}">${esc(f)}</button>`).join("");
   p.innerHTML = `
-    <div class="panel-toolbar"><span>Files saved at this checkpoint (click to view):</span></div>
+    <div class="panel-toolbar"><span>Files saved at this checkpoint (click to open it below and step through it):</span></div>
     <div class="file-grid">${mk(s.files || [], s.key)}</div>
     <div class="panel-toolbar" style="margin-top:20px"><span>Working directory right now:</span></div>
-    <div class="file-grid">${mk(d.root_files, "root")}</div>`;
+    <div class="file-grid">${mk(d.root_files, "root")}</div>
+    <div id="files-viewer"></div>`;
+  const viewer = $("#files-viewer");
+  // Files that appear in the checkpoint history can be stepped through; root-only
+  // files (not part of the conversion history) just open in the modal.
+  const stepable = new Set();
+  d.steps.forEach((st) => (st.files || []).forEach((f) => stepable.add(f)));
   p.querySelectorAll(".file-pill").forEach((b) => {
     b.onclick = async () => {
-      const fj = await api("file", { mod: d.module.id, step: b.dataset.step, name: b.dataset.name });
-      openModal(`${b.dataset.step} / ${b.dataset.name}`, fj.content);
+      const name = b.dataset.name;
+      if (b.dataset.step !== "root" || stepable.has(name)) {
+        p.querySelectorAll(".file-pill").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        viewer.innerHTML = `<div class="panel-toolbar" style="margin-top:20px"><span>${esc(name)} — step through it, or switch to Diff</span></div><div class="fdiff-body"></div>`;
+        mountFileStepper(viewer.querySelector(".fdiff-body"), name, d, { mode: "full" });
+      } else {
+        const fj = await api("file", { mod: d.module.id, step: b.dataset.step, name });
+        openModal(`${b.dataset.step} / ${name}`, fj.content);
+      }
     };
   });
 }

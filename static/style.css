@@ -461,6 +461,27 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   font-size: 0.76rem; font-weight: 600; padding: 4px 11px;
 }
 .btn-mini:hover { background: var(--indigo-soft); }
+.btn-mini.on { background: var(--indigo); color: #fff; }
+.btn-mini:disabled { opacity: 0.35; cursor: default; }
+.btn-mini:disabled:hover { background: transparent; transform: none; }
+
+/* per-file stepper bar: delta buttons on the outside, step buttons inside,
+   mode toggle pushed to the right */
+.fstep-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.fstep-label { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-soft); padding: 0 6px; }
+.fstep-modes { margin-left: auto; display: inline-flex; gap: 4px; }
+.file-pill.on { background: var(--indigo); color: #fff; border-color: var(--indigo); }
+
+/* whole-file view with changed lines highlighted */
+.fullfile {
+  font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
+  border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; background: var(--surface);
+}
+.ffl { white-space: pre; padding: 0 10px; }
+.ffl.l-add { background: #e6ffec; }
+.ffl.l-del { background: #ffebe9; }
+.ffl.l-chg { background: #fff8c5; }
+.tracker-in-diff > summary .muted { font-weight: 400; }
 
 /* side-by-side diff, GitHub light */
 .sxs {
