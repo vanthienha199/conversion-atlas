@@ -1,0 +1,6 @@
+{
+  "task": "Simplify Code Generation",
+  "fev.sh": "0: All FEV runs successful! History updated.",
+  "fev_cnt": 0,
+  "llm": "One generate block: if (|WITH_CSR). Plan: Step1: pull out identical o_rs1/o_rs2. Step2: eliminate full generate using ternary (|WITH_CSR) expressions for unified rd, mtval, sel_rs2, and all output assigns. fev.eqy matches: gen_csr.rd->rd, gen_csr.mtval->mtval, gen_csr.sel_rs2->sel_rs2."
+}
