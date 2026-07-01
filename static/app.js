@@ -485,11 +485,15 @@ function mountFileStepper(host, fname, d, opts = {}) {
   let deltas = [];
   host.innerHTML = `
     <div class="fstep-bar">
-      <button class="btn-mini fstep-pdelta" title="previous change to this file">⏮ prev change</button>
-      <button class="btn-mini fstep-prev" title="previous step">◀</button>
+      <span class="fstep-nav fstep-nav-left">
+        <button class="btn-mini fstep-pdelta" title="previous change to this file">⏮ prev change</button>
+        <button class="btn-mini fstep-prev" title="previous step">◀</button>
+      </span>
       <span class="fstep-label"></span>
-      <button class="btn-mini fstep-next" title="next step">▶</button>
-      <button class="btn-mini fstep-ndelta" title="next change to this file">next change ⏭</button>
+      <span class="fstep-nav fstep-nav-right">
+        <button class="btn-mini fstep-next" title="next step">▶</button>
+        <button class="btn-mini fstep-ndelta" title="next change to this file">next change ⏭</button>
+      </span>
       <span class="fstep-modes">
         <button class="btn-mini fstep-mdiff" title="side-by-side diff">Diff</button>
         <button class="btn-mini fstep-mfull" title="whole file">Full file</button>

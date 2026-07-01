@@ -467,9 +467,16 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 
 /* per-file stepper bar: delta buttons on the outside, step buttons inside,
    mode toggle pushed to the right */
-.fstep-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.fstep-label { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-soft); padding: 0 6px; }
-.fstep-modes { margin-left: auto; display: inline-flex; gap: 4px; }
+/* left nav pinned left, right nav pinned right, label is a flexible centered
+   spacer so the buttons never shift when the task title length changes */
+.fstep-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.fstep-nav { display: inline-flex; gap: 6px; flex: none; }
+.fstep-label {
+  flex: 1 1 auto; min-width: 0; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--mono); font-size: 0.76rem; color: var(--ink-soft); padding: 0 6px;
+}
+.fstep-modes { display: inline-flex; gap: 4px; flex: none; margin-left: 8px; }
 .file-pill.on { background: var(--indigo); color: #fff; border-color: var(--indigo); }
 
 /* whole-file view with changed lines highlighted */
