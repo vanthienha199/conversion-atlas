@@ -684,7 +684,7 @@ async function exFiles(p) {
       if (b.dataset.step !== "root" || stepable.has(name)) {
         p.querySelectorAll(".file-pill").forEach((x) => x.classList.remove("on"));
         b.classList.add("on");
-        viewer.innerHTML = `<div class="panel-toolbar" style="margin-top:20px"><span>${esc(name)} — step through it, or switch to Diff</span></div><div class="fdiff-body"></div>`;
+        viewer.innerHTML = `<div class="panel-toolbar" style="margin-top:20px"><span>${esc(name)}: step through it, or switch to Diff</span></div><div class="fdiff-body"></div>`;
         mountFileStepper(viewer.querySelector(".fdiff-body"), name, d, { mode: "full" });
       } else {
         const fj = await api("file", { mod: d.module.id, step: b.dataset.step, name });
