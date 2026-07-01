@@ -446,6 +446,13 @@ async function fileDiffRows(f, s, d) {
 }
 
 // Diff rows for one file at an arbitrary step index (independent of the page's step).
+// Whole file as all-added rows, so a file that first appears at a step renders
+// without requesting a diff against a version that does not exist (which 404s).
+async function allAddedRows(fname, stepKey, d) {
+  const fj = await api("file", { mod: d.module.id, step: stepKey, name: fname });
+  return (fj.content || "").split("\n").map((t, i) => ["add", "", "", i + 1, t]);
+}
+
 async function fileDiffRowsAt(fname, idx, d) {
   let ep;
   if (idx === 0) {
@@ -453,6 +460,12 @@ async function fileDiffRowsAt(fname, idx, d) {
     ep = { a_step: base ? "root" : d.steps[0].key, a_name: base || fname, b_step: d.steps[0].key, b_name: fname };
   } else {
     const prev = d.steps[idx - 1], s = d.steps[idx];
+    const bHas = (s.files || []).includes(fname);
+    const aHas = (prev.files || []).includes(fname) || !!prev.reverted_to;
+    // Avoid diffing against a version that is not there (would 404): show the file
+    // as all-added when it first appears, or nothing when it is not saved here.
+    if (!bHas) return [];
+    if (!aHas) return allAddedRows(fname, s.key, d);
     const pkey = prev.reverted_to ? prev.key.split("/").slice(0, -1).concat(prev.reverted_to).join("/") : prev.key;
     ep = { a_step: pkey, a_name: fname, b_step: s.key, b_name: fname };
   }
@@ -476,10 +489,36 @@ async function changedStepsFor(fname, d) {
   return idxs;
 }
 
+// Tracker content at each step, cached on d. The "note about step N" lives in the
+// NEXT checkpoint (the agent writes the tracker after fev.sh snapshots the step),
+// so the after-tracker for step N is step N+1, or the working dir for the last step.
+async function trackerContentsByStep(d) {
+  if (!d._trackerByStep) {
+    d._trackerByStep = await Promise.all(d.steps.map((s) =>
+      (s.files || []).includes("tracker.md")
+        ? api("file", { mod: d.module.id, step: s.key, name: "tracker.md" }).then((r) => r.content || "").catch(() => "")
+        : Promise.resolve("")));
+    d._trackerAfterLast = await api("tracker", { mod: d.module.id }).then((r) => r.markdown || "").catch(() => "");
+  }
+  return d._trackerByStep;
+}
+function trackerAfter(idx, d) {
+  return idx < d.steps.length - 1 ? d._trackerByStep[idx + 1] : d._trackerAfterLast;
+}
+async function trackerChangedIdxs(d) {
+  await trackerContentsByStep(d);
+  const out = [];
+  d.steps.forEach((_, i) => { if ((d._trackerByStep[i] || "") !== (trackerAfter(i, d) || "")) out.push(i); });
+  return out;
+}
+
 // A per-file stepper. Two tiers of navigation: prev/next step (every checkpoint)
 // and prev/next delta (only checkpoints where THIS file changed). mode is "diff"
 // (side by side vs the previous version) or "full" (the whole file at that step).
+// opts.tracker: diff this step vs the NEXT (N vs N+1) since the tracker is written
+// after fev records the checkpoint; "full" renders the tracker as markdown.
 function mountFileStepper(host, fname, d, opts = {}) {
+  const tracker = !!opts.tracker;
   let idx = state.stepIdx;
   let mode = opts.mode || "diff";
   let deltas = [];
@@ -508,6 +547,11 @@ function mountFileStepper(host, fname, d, opts = {}) {
   const nDelta = host.querySelector(".fstep-ndelta");
   const mDiff = host.querySelector(".fstep-mdiff");
   const mFull = host.querySelector(".fstep-mfull");
+  if (tracker) {
+    pDelta.title = "previous step with a note"; pDelta.textContent = "⏮ prev note";
+    nDelta.title = "next step with a note"; nDelta.textContent = "next note ⏭";
+    mFull.textContent = "Rendered"; mFull.title = "tracker rendered as markdown";
+  }
   async function render() {
     prevBtn.disabled = idx <= 0;
     nextBtn.disabled = idx >= d.steps.length - 1;
@@ -516,10 +560,20 @@ function mountFileStepper(host, fname, d, opts = {}) {
     mDiff.classList.toggle("on", mode === "diff");
     mFull.classList.toggle("on", mode === "full");
     const s = d.steps[idx];
-    label.textContent = `step ${s.n} of ${d.steps.length}${s.task ? " · " + s.task : ""}`;
+    const last = d.steps.length - 1;
+    label.textContent = `step ${s.n} of ${d.steps.length}${s.task ? " · " + s.task : ""}${tracker ? " · notes about this step" : ""}`;
     diffHost.innerHTML = `<div class="note">loading…</div>`;
     try {
-      if (mode === "full") {
+      if (tracker) {
+        if (mode === "full") {
+          diffHost.innerHTML = `<div class="md-card md">${md(trackerAfter(idx, d) || "")}</div>`;
+        } else {
+          const bStep = idx < last ? d.steps[idx + 1].key : "root";
+          const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: "tracker.md", b_step: bStep, b_name: "tracker.md" });
+          if (!dj.rows.some((r) => r[0] !== "eq")) diffHost.innerHTML = `<div class="note">No note recorded about step ${s.n}.</div>`;
+          else renderSxS(diffHost, dj.rows, `step ${s.n}`, idx < last ? `step ${d.steps[idx + 1].n} (note lands here)` : "working dir (latest)");
+        }
+      } else if (mode === "full") {
         await renderFullFileAt(diffHost, fname, idx, d);
       } else {
         const aLabel = (idx === 0 && fname === "wip.tlv") ? "original Verilog" : idx > 0 ? `step ${d.steps[idx - 1].n}` : "before";
@@ -537,7 +591,7 @@ function mountFileStepper(host, fname, d, opts = {}) {
   mDiff.onclick = () => { if (mode !== "diff") { mode = "diff"; render(); } };
   mFull.onclick = () => { if (mode !== "full") { mode = "full"; render(); } };
   render();
-  changedStepsFor(fname, d).then((idxs) => { deltas = idxs; render(); }).catch(() => {});
+  (tracker ? trackerChangedIdxs(d) : changedStepsFor(fname, d)).then((idxs) => { deltas = idxs; render(); }).catch(() => {});
 }
 
 // Whole-file view at a step, with changed lines highlighted vs the previous step
@@ -590,23 +644,14 @@ async function exDiff(p) {
   // tracker after fev.sh records the checkpoint, so a step's notes land in the
   // next checkpoint. This is the opposite direction from every other file.
   const tHost = $("#ex-tracker-diff");
-  const curHasTracker = (s.files || []).includes("tracker.md");
-  const nextStep = state.stepIdx < d.steps.length - 1 ? d.steps[state.stepIdx + 1] : null;
-  if (tHost && curHasTracker) {
+  const anyTracker = d.steps.some((st) => (st.files || []).includes("tracker.md"));
+  if (tHost && anyTracker) {
     const sec = document.createElement("details");
     sec.className = "fdiff tracker-in-diff";
     sec.open = false;
-    sec.innerHTML = `<summary><span class="fc-name">tracker.md</span><span class="muted"> (next vs current, written after FEV)</span></summary><div class="fdiff-body"><div class="note">loading…</div></div>`;
+    sec.innerHTML = `<summary><span class="fc-name">tracker.md</span><span class="muted"> (agent notes, shown next vs current since written after FEV; step or jump between notes)</span></summary><div class="fdiff-body"></div>`;
     tHost.appendChild(sec);
-    const body = sec.querySelector(".fdiff-body");
-    (async () => {
-      try {
-        const bStep = nextStep && (nextStep.files || []).includes("tracker.md") ? nextStep.key : "root";
-        const dj = await api("diff", { mod: d.module.id, a_step: s.key, a_name: "tracker.md", b_step: bStep, b_name: "tracker.md" });
-        if (!dj.rows.some((r) => r[0] !== "eq")) { body.innerHTML = `<div class="note">No tracker change recorded at this step.</div>`; return; }
-        renderSxS(body, dj.rows, `step ${s.n}`, bStep === "root" ? "working dir (latest)" : `step ${nextStep.n}`);
-      } catch (e) { body.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
-    })();
+    mountFileStepper(sec.querySelector(".fdiff-body"), "tracker.md", d, { tracker: true, mode: "diff" });
   }
   const uc = $("#ex-unchanged");
   if (uc) {
