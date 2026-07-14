@@ -173,6 +173,7 @@ def gen2_detail(mod):
             "task": st.get("task"),
             "fev": st.get("fev.sh"),
             "fev_cnt": st.get("fev_cnt"),
+            "model": st.get("model"),
             "llm": st.get("llm"),
             "files": list_step_files(sd),
             "mtime": mtime,

@@ -230,6 +230,24 @@ function passCount() {
   return steps().filter((s) => stepStatus(s).state === "ok").length;
 }
 
+// Which model authored a checkpoint, as a compact colored chip. The full model id
+// stays in the tooltip; the chip shows the family so the timeline scans at a glance.
+function modelFamily(model) {
+  const m = String(model || "").toLowerCase();
+  if (!m) return null;
+  if (m.includes("deepseek")) return "deepseek";
+  if (m.includes("claude")) return "claude";
+  if (m.includes("gemini")) return "gemini";
+  if (m.includes("gpt") || /\bo\d/.test(m)) return "openai";
+  return "other";
+}
+
+function modelChip(model) {
+  const fam = modelFamily(model);
+  if (!fam) return "";
+  return `<span class="model-chip ${fam}" title="${esc(model)}">${esc(fam)}</span>`;
+}
+
 function renderExHeader() {
   const d = state.detail, m = d.module;
   const parts = m.name.split("_");
@@ -315,6 +333,7 @@ function renderExTimeline() {
         : `<span class="dur">${esc(s.duration || "")}</span>`;
       b.innerHTML = `<span class="ic">${icon[st.state]}</span>
         <span>Step ${esc(String(s.n))}</span>
+        ${modelChip(s.model)}
         ${right}`;
       b.onclick = () => gotoStep(idx);
       list.appendChild(b);
@@ -378,7 +397,7 @@ function renderExBanner() {
     ? `<span class="badge">setup step (no FEV)</span>`
     : `<span class="badge ok" title="Proven equivalent by formal verification">✓ FEV verified</span>`;
   if (s.duration) badges += `<span class="badge info">took ${esc(s.duration)}</span>`;
-  if (s.model) badges += `<span class="badge info">${esc(s.model)}</span>`;
+  if (s.model) badges += `<span class="badge model ${modelFamily(s.model)}" title="model that produced this checkpoint">${esc(s.model)}</span>`;
   let failBlock = "";
   if (st.state === "fail") {
     const np = nextPassingStep();
