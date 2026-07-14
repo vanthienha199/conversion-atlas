@@ -73,6 +73,20 @@ no npm, no build step, read-only against your files.
   `messages.<api>.json` and `llm_response.txt` per modification, and marks
   reversion checkpoints.
 
+## Using the frontend as an npm package
+
+The frontend (`static/app.js`, `static/style.css`, `static/index.html`) is framework-free
+and backend-agnostic. It is published as the `conversion-atlas-ui` package via git tags:
+
+```
+npm install github:vanthienha199/conversion-atlas#v1.0.0
+```
+
+Reference the files from `node_modules/conversion-atlas-ui/static/`. The API contract the
+frontend expects from any backend (this Python server or a TypeScript port) is documented
+in [docs/frontend-api.md](docs/frontend-api.md), which ships inside the package. To adopt
+a newer UI, bump the tag and diff between tags to see what changed.
+
 ## Options
 
 ```
