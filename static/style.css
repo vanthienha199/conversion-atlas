@@ -431,6 +431,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .badge.model.gemini, .model-chip.gemini { background: #e8e6f8; color: #4a3fa3; }
 .badge.model.openai, .model-chip.openai { background: #e2f3ee; color: #14705a; }
 .badge.model.other, .model-chip.other { background: var(--indigo-soft); color: var(--indigo); }
+.badge.model.script, .model-chip.script { background: #ececec; color: #555; }
 .model-chip {
   font-family: var(--mono); font-size: 0.6rem; font-weight: 600;
   padding: 1px 7px; border-radius: 999px; white-space: nowrap;

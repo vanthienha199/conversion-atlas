@@ -235,6 +235,7 @@ function passCount() {
 function modelFamily(model) {
   const m = String(model || "").toLowerCase();
   if (!m) return null;
+  if (m === "script") return "script";
   if (m.includes("deepseek")) return "deepseek";
   if (m.includes("claude")) return "claude";
   if (m.includes("gemini")) return "gemini";
