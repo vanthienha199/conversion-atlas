@@ -249,6 +249,14 @@ function modelChip(model) {
   return `<span class="model-chip ${fam}" title="${esc(model)}">${esc(fam)}</span>`;
 }
 
+// Copilot-style +added/-removed lines of source change at this checkpoint. The main
+// signal is "did the code change at all", so zero-change steps show nothing.
+function deltaChip(s) {
+  if (!s.plus && !s.minus) return "";
+  return `<span class="delta-chip" title="lines of code changed at this checkpoint">` +
+    `<span class="d-plus">+${s.plus}</span> <span class="d-minus">-${s.minus}</span></span>`;
+}
+
 function renderExHeader() {
   const d = state.detail, m = d.module;
   const parts = m.name.split("_");
@@ -335,6 +343,7 @@ function renderExTimeline() {
       b.innerHTML = `<span class="ic">${icon[st.state]}</span>
         <span>Step ${esc(String(s.n))}</span>
         ${modelChip(s.model)}
+        ${deltaChip(s)}
         ${right}`;
       b.onclick = () => gotoStep(idx);
       list.appendChild(b);
@@ -399,6 +408,7 @@ function renderExBanner() {
     : `<span class="badge ok" title="Proven equivalent by formal verification">✓ FEV verified</span>`;
   if (s.duration) badges += `<span class="badge info">took ${esc(s.duration)}</span>`;
   if (s.model) badges += `<span class="badge model ${modelFamily(s.model)}" title="model that produced this checkpoint">${esc(s.model)}</span>`;
+  if (s.plus || s.minus) badges += `<span class="badge delta" title="lines of code changed at this checkpoint"><span class="d-plus">+${s.plus}</span> <span class="d-minus">-${s.minus}</span></span>`;
   let failBlock = "";
   if (st.state === "fail") {
     const np = nextPassingStep();

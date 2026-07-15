@@ -436,6 +436,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   font-family: var(--mono); font-size: 0.6rem; font-weight: 600;
   padding: 1px 7px; border-radius: 999px; white-space: nowrap;
 }
+.delta-chip { font-family: var(--mono); font-size: 0.6rem; white-space: nowrap; }
+.badge.delta { font-family: var(--mono); background: #f4f4f0; }
+.d-plus { color: var(--green-dk); font-weight: 700; }
+.d-minus { color: var(--red-dk); font-weight: 700; }
 .hint {
   margin-top: 9px;
   background: var(--yellow-soft); border: 1px solid #f0e1a0; border-radius: 8px;

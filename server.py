@@ -153,6 +153,19 @@ def list_step_files(sd):
     return out
 
 
+def line_delta(prev_txt, cur_txt):
+    """Copilot-style +added/-removed line counts between two versions of a file."""
+    if prev_txt is None or cur_txt is None or prev_txt == cur_txt:
+        return (0, 0)
+    plus = minus = 0
+    for ln in difflib.unified_diff(prev_txt.splitlines(), cur_txt.splitlines(), lineterm="", n=0):
+        if ln.startswith("+") and not ln.startswith("+++"):
+            plus += 1
+        elif ln.startswith("-") and not ln.startswith("---"):
+            minus += 1
+    return (plus, minus)
+
+
 def gen2_detail(mod):
     d = mod["path"]
     hist = os.path.join(d, "history")
@@ -161,12 +174,16 @@ def gen2_detail(mod):
     if os.path.isdir(hist):
         nums = sorted([k for k in os.listdir(hist) if k.isdigit()], key=int)
     prev_mtime = None
+    prev_wip = None
     for k in nums:
         sd = os.path.join(hist, k)
         st = read_json(os.path.join(sd, "status.json")) or {}
         mtime = safe_mtime(sd)
         dur = human_duration(mtime - prev_mtime) if (mtime and prev_mtime) else None
         prev_mtime = mtime or prev_mtime
+        cur_wip = read_text(os.path.join(sd, "wip.tlv"))
+        plus, minus = line_delta(prev_wip, cur_wip)
+        prev_wip = cur_wip if cur_wip is not None else prev_wip
         steps.append({
             "key": f"history/{k}",
             "n": int(k),
@@ -175,6 +192,8 @@ def gen2_detail(mod):
             "fev_cnt": st.get("fev_cnt"),
             "model": st.get("model"),
             "llm": st.get("llm"),
+            "plus": plus,
+            "minus": minus,
             "files": list_step_files(sd),
             "mtime": mtime,
             "duration": dur,
@@ -215,6 +234,7 @@ def gen1_detail(mod):
     steps = []
     snums = sorted([k for k in os.listdir(hist) if k.isdigit()], key=int)
     prev_mtime = None
+    prev_src = {}
     for k in snums:
         sd = os.path.join(hist, k)
         pid = read_json(os.path.join(sd, "prompt_id.txt"))
@@ -235,6 +255,14 @@ def gen1_detail(mod):
             mtime = safe_mtime(md)
             dur = human_duration(mtime - prev_mtime) if (mtime and prev_mtime) else None
             prev_mtime = mtime or prev_mtime
+            plus = minus = 0
+            if not reverted:
+                srcs = [f for f in sorted(os.listdir(md)) if f.endswith((".v", ".sv", ".tlv"))]
+                if srcs:
+                    cur_src = read_text(os.path.join(md, srcs[0]))
+                    plus, minus = line_delta(prev_src.get(mname), cur_src)
+                    if cur_src is not None:
+                        prev_src[mname] = cur_src
             steps.append({
                 "key": f"history/{k}/{mname}",
                 "n": len(steps) + 1,
@@ -244,6 +272,8 @@ def gen1_detail(mod):
                 "model": st.get("model"),
                 "incomplete": st.get("incomplete"),
                 "llm": st.get("plan") or "",
+                "plus": plus,
+                "minus": minus,
                 "reverted_to": target,
                 "files": [] if reverted else list_step_files(md),
                 "mtime": mtime,
