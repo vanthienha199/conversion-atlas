@@ -394,12 +394,15 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .tl-group.open .tl-group-steps { display: block; }
 
 .tl-step {
-  display: flex; align-items: center; gap: 9px; width: 100%;
+  display: flex; align-items: center; gap: 6px; width: 100%;
   background: transparent; border: none; font: inherit; text-align: left;
   padding: 4px 8px; border-radius: 8px; cursor: pointer; color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.8rem; white-space: nowrap;
   transition: background 150ms ease-out, color 150ms ease-out;
 }
+.tl-step > span { flex: none; }
+.tl-step .dur, .tl-step .nc-tag { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.tl-step .model-chip { padding: 1px 5px; }
 .tl-step:hover { background: #eceef4; color: var(--ink); }
 .tl-step.active { background: var(--indigo-soft); color: var(--indigo); font-weight: 600; }
 .tl-step .ic {
