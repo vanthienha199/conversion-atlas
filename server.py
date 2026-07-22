@@ -191,6 +191,7 @@ def gen2_detail(mod):
             "fev": st.get("fev.sh"),
             "fev_cnt": st.get("fev_cnt"),
             "model": st.get("model"),
+            "cache": st.get("cache"),
             "llm": st.get("llm"),
             "plus": plus,
             "minus": minus,

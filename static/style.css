@@ -429,6 +429,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .badge.bad { background: #fdeceb; color: var(--red-dk); }
 .badge.info { background: var(--indigo-soft); color: var(--indigo); }
 .badge.model { font-family: var(--mono); font-weight: 500; }
+.cache-chip {
+  font-family: var(--mono); font-size: 0.6rem; font-weight: 600;
+  padding: 1px 5px; border-radius: 999px; white-space: nowrap;
+  background: #eaf3e6; color: #4a7a34;
+}
 .badge.model.deepseek, .model-chip.deepseek { background: #e3f0fb; color: #1c5d99; }
 .badge.model.claude, .model-chip.claude { background: #f6e9df; color: #a04f1e; }
 .badge.model.gemini, .model-chip.gemini { background: #e8e6f8; color: #4a3fa3; }

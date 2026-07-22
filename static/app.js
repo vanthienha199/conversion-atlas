@@ -249,6 +249,19 @@ function modelChip(model) {
   return `<span class="model-chip ${fam}" title="${esc(model)}">${esc(fam)}</span>`;
 }
 
+// Prompt-cache hit share for the LLM call behind a checkpoint, when the run
+// recorded it. Reads should dominate on retries within a task; a low share on
+// a retry means the cached prefix was invalidated or expired.
+function cacheChip(s) {
+  const c = s.cache;
+  if (!c) return "";
+  const read = c.cache_read || 0, write = c.cache_write || 0, unc = c.in || 0;
+  if (!read && !write && !unc) return "";
+  const total = read + unc;
+  const pct = total ? Math.round((100 * read) / total) : 0;
+  return `<span class="cache-chip" title="prompt cache: ${read} read, ${write} written, ${unc} uncached input tokens">${pct}% cached</span>`;
+}
+
 // Copilot-style +added/-removed lines of source change at this checkpoint. The main
 // signal is "did the code change at all", so zero-change steps show nothing.
 function deltaChip(s) {
@@ -344,6 +357,7 @@ function renderExTimeline() {
         <span>Step ${esc(String(s.n))}</span>
         ${modelChip(s.model)}
         ${deltaChip(s)}
+        ${cacheChip(s)}
         ${right}`;
       b.onclick = () => gotoStep(idx);
       list.appendChild(b);
