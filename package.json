@@ -1,6 +1,6 @@
 {
   "name": "conversion-atlas-ui",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Conversion Console frontend: vanilla JS/CSS UI for browsing Verilog to TL-Verilog conversion history (checkpoints, diffs, FEV status, model attribution).",
   "license": "MIT",
   "author": "Ha Le <halevanthien@gmail.com>",
