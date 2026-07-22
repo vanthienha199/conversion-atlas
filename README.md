@@ -108,3 +108,5 @@ a newer UI, bump the tag and diff between tags to see what changed.
 - The server is read-only and refuses paths outside the scanned roots.
 
 Built by Ha Le for the Redwood EDA Summer Mentorship 2026.
+
+
