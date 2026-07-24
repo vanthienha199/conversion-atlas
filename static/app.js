@@ -480,28 +480,81 @@ async function exSummary(p) {
     if (s.model) cur.model = s.model;
   });
   const complete = (d.root_files || []).includes("CONVERSION_COMPLETE.md");
-  const card = (big, label) => `<div class="sum-card"><div class="sum-big">${big}</div><div class="sum-label">${label}</div></div>`;
+  // Bars over lone numbers, per Few: a number without a scale can't be compared;
+  // a segmented bar shows the proportion at a glance and stays honest as the run grows.
+  const segBar = (segs, cls) => {
+    return `<div class="sum-bar ${cls || ""}">` +
+      segs.filter((s) => s.v > 0).map((s) =>
+        `<span class="sum-seg ${s.c}" style="flex:${s.v}" title="${esc(s.t || "")}"></span>`).join("") +
+      `</div>`;
+  };
+  const spark = (vals, w, h) => {
+    if (vals.length < 2) return "";
+    const step = w / (vals.length - 1);
+    const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(h - 2 - (v / 100) * (h - 4)).toFixed(1)}`).join(" ");
+    return `<svg class="sum-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="cache hit percent per checkpoint">
+      <polyline points="${pts}" fill="none"/></svg>`;
+  };
+  const cacheSeq = steps.map((s) => {
+    const c = s.cache;
+    if (!c) return null;
+    const t = (c.cache_read || 0) + (c.in || 0);
+    return t ? Math.round((100 * (c.cache_read || 0)) / t) : 0;
+  }).filter((v) => v !== null);
+  const modelRows = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
+  const modelMax = Math.max(...modelRows.map(([, n]) => n), 1);
+  const laneMax = Math.max(...lanes.map((l) => l.steps), 1);
   p.innerHTML = `
-    <div class="sum-cards">
-      ${card(`${lanes.length}`, complete ? "tasks, conversion complete" : "tasks so far")}
-      ${card(`${passed.length} <span class="sum-dim">/ ${steps.length}</span>`, "checkpoints passed FEV")}
-      ${card(`<span class="add">+${plus}</span> <span class="rem">−${minus}</span>`, "lines changed overall")}
-      ${card(fmtWall(wall), "wall-clock time")}
-      ${Object.keys(byModel).length ? card(Object.entries(byModel).map(([m, n]) => `${esc(m)} ${n}`).join(" · "), "checkpoints by model") : ""}
-      ${anyCache ? card(`${hitPct}%`, `prompt cache hit rate (${(cache.read / 1000).toFixed(1)}k read / ${(cache.unc / 1000).toFixed(1)}k uncached)`) : ""}
+    <div class="sum-grid">
+      <div class="sum-card sum-wide">
+        <div class="sum-label">checkpoints passed FEV${complete ? " · conversion complete" : " · in progress"}</div>
+        <div class="sum-big">${passed.length} <span class="sum-dim">/ ${steps.length}</span></div>
+        ${segBar([
+          { v: passed.length, c: "ok", t: `${passed.length} passed` },
+          { v: failed, c: "bad", t: `${failed} failed (retry checkpoints included)` },
+        ])}
+        <div class="sum-legend"><span><i class="sw ok"></i>passed</span><span><i class="sw bad"></i>failed attempt</span></div>
+      </div>
+      ${modelRows.length ? `<div class="sum-card">
+        <div class="sum-label">checkpoints by model</div>
+        <div class="sum-mrows">${modelRows.map(([m, n]) => `
+          <div class="sum-mrow"><span class="sum-mname model-chip ${m}">${esc(m)}</span>
+            <span class="sum-mtrack"><span class="sum-mfill ${m}" style="width:${(100 * n) / modelMax}%"></span></span>
+            <span class="sum-mnum">${n}</span></div>`).join("")}</div>
+      </div>` : ""}
+      ${anyCache ? `<div class="sum-card">
+        <div class="sum-label">prompt cache hit rate</div>
+        <div class="sum-big">${hitPct}%</div>
+        ${segBar([
+          { v: cache.read, c: "cache", t: `${(cache.read / 1000).toFixed(1)}k tokens read from cache` },
+          { v: cache.unc, c: "mut", t: `${(cache.unc / 1000).toFixed(1)}k tokens uncached` },
+        ])}
+        <div class="sum-sparkrow">${spark(cacheSeq, 120, 26)}<span class="sum-sparklabel">per checkpoint: drops on a new task or after the 5-min expiry, climbs on retries</span></div>
+      </div>` : ""}
+      <div class="sum-card sum-mini"><div class="sum-big">${lanes.length}</div><div class="sum-label">tasks ${complete ? "total" : "so far"}</div></div>
+      <div class="sum-card sum-mini">
+        <div class="sum-big"><span class="add">+${plus}</span> <span class="rem">−${minus}</span></div>
+        ${(plus || minus) ? segBar([{ v: plus, c: "ok", t: `${plus} added` }, { v: minus, c: "bad", t: `${minus} removed` }], "thin") : ""}
+        <div class="sum-label">lines changed</div>
+      </div>
+      <div class="sum-card sum-mini"><div class="sum-big">${fmtWall(wall)}</div><div class="sum-label">wall-clock</div></div>
     </div>
     <table class="sum-table">
-      <thead><tr><th>Task</th><th>Checkpoints</th><th>Failed FEV</th><th>Lines</th><th>Finished by</th></tr></thead>
+      <thead><tr><th>Task</th><th class="num">Passed</th><th>Attempts on a shared scale</th><th class="num">Lines</th><th>Finished by</th></tr></thead>
       <tbody>
       ${lanes.map((l) => `<tr>
         <td>${esc(l.task || "(unlabeled)")}</td>
-        <td>${l.steps}</td>
-        <td>${l.fails ? `<span class="rem">${l.fails}</span>` : "0"}</td>
-        <td>${(l.plus || l.minus) ? `<span class="add">+${l.plus}</span> <span class="rem">−${l.minus}</span>` : "·"}</td>
+        <td class="num">${l.steps - l.fails}<span class="sum-dim">/${l.steps}</span></td>
+        <td><div class="sum-lanebar" style="width:${(100 * l.steps) / laneMax}%">${segBar([
+          { v: l.steps - l.fails, c: "ok", t: `${l.steps - l.fails} passed` },
+          { v: l.fails, c: "bad", t: `${l.fails} failed attempts` },
+        ], "thin")}</div></td>
+        <td class="num">${(l.plus || l.minus) ? `<span class="add">+${l.plus}</span> <span class="rem">−${l.minus}</span>` : "·"}</td>
         <td>${l.model ? modelChip(l.model) : "·"}</td>
       </tr>`).join("")}
       </tbody>
-    </table>`;
+    </table>
+    <div class="sum-foot">Bar lengths in the table share one scale, so longer means more attempts; red is where the agent struggled.</div>`;
 }
 
 const EXTABS = [

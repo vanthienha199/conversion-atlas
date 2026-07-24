@@ -934,17 +934,51 @@ mark { padding: 0 1px; }
   display: inline-block; width: 3.2em; padding-right: 0.8em; text-align: right;
   color: var(--faint); user-select: none;
 }
-.sum-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.sum-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
 .sum-card {
-  flex: 1 1 140px; border: 1px solid var(--line); border-radius: 10px;
-  padding: 10px 14px; background: var(--white);
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  background: var(--white); grid-column: span 2;
+  display: flex; flex-direction: column; gap: 7px;
 }
-.sum-big { font-size: 1.15rem; font-weight: 700; color: var(--navy); }
-.sum-big .sum-dim { color: var(--faint); font-weight: 500; }
-.sum-label { font-size: 0.7rem; color: var(--faint); margin-top: 2px; }
+.sum-card.sum-wide { grid-column: span 6; }
+.sum-card.sum-mini { grid-column: span 2; justify-content: center; }
+.sum-big { font-size: 1.3rem; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; }
+.sum-big .sum-dim { color: var(--faint); font-weight: 500; font-size: 0.95rem; }
+.sum-label { font-size: 0.68rem; color: var(--faint); }
+.sum-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #eef0f5; }
+.sum-bar.thin { height: 7px; border-radius: 4px; }
+.sum-seg { display: block; min-width: 3px; }
+.sum-seg.ok { background: #4caf7d; }
+.sum-seg.bad { background: #e2574c; }
+.sum-seg.cache { background: #4caf7d; }
+.sum-seg.mut { background: #ccd1dd; }
+.sum-legend { display: flex; gap: 14px; font-size: 0.66rem; color: var(--faint); }
+.sum-legend .sw {
+  display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+  margin-right: 4px; vertical-align: baseline;
+}
+.sum-legend .sw.ok { background: #4caf7d; }
+.sum-legend .sw.bad { background: #e2574c; }
+.sum-mrows { display: flex; flex-direction: column; gap: 6px; }
+.sum-mrow { display: flex; align-items: center; gap: 8px; }
+.sum-mname { flex: none; }
+.sum-mtrack { flex: 1; height: 7px; border-radius: 4px; background: #eef0f5; overflow: hidden; }
+.sum-mfill { display: block; height: 100%; border-radius: 4px; background: var(--indigo); }
+.sum-mfill.deepseek { background: #4a90c9; }
+.sum-mfill.claude { background: #cf8352; }
+.sum-mfill.script { background: #9aa0ab; }
+.sum-mnum { flex: none; font-size: 0.74rem; font-weight: 600; color: var(--navy); font-variant-numeric: tabular-nums; }
+.sum-sparkrow { display: flex; align-items: center; gap: 10px; }
+.sum-spark { width: 120px; height: 26px; flex: none; }
+.sum-spark polyline { stroke: #4caf7d; stroke-width: 2; }
+.sum-sparklabel { font-size: 0.64rem; color: var(--faint); line-height: 1.35; }
 .sum-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 .sum-table th {
   text-align: left; padding: 6px 10px; color: var(--faint); font-weight: 600;
   border-bottom: 1px solid var(--line); font-size: 0.7rem;
 }
-.sum-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.sum-table th.num, .sum-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sum-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.sum-table tr:hover td { background: #f6f7fb; }
+.sum-lanebar { min-width: 24px; }
+.sum-foot { margin-top: 8px; font-size: 0.66rem; color: var(--faint); }
