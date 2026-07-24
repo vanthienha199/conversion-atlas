@@ -921,3 +921,30 @@ mark { padding: 0 1px; }
 .tracker-diff .tdr.add { border-left-color: var(--green); background: rgba(43,194,106,0.08); }
 .tracker-diff .tdr.del { border-left-color: var(--red); background: rgba(255,87,87,0.07); }
 .tracker-diff .tdr.del .md { opacity: 0.65; }
+
+.psxs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.psxs-pane { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--white); }
+.psxs-head {
+  padding: 5px 10px; font-size: 0.72rem; font-weight: 600; color: var(--navy);
+  background: #f4f5f9; border-bottom: 1px solid var(--line);
+}
+.psxs-scroll { max-height: 560px; overflow: auto; }
+.psxs-code { margin: 0; padding: 8px 0; font-family: var(--mono); font-size: 0.72rem; line-height: 1.45; }
+.psxs-code .ln {
+  display: inline-block; width: 3.2em; padding-right: 0.8em; text-align: right;
+  color: var(--faint); user-select: none;
+}
+.sum-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.sum-card {
+  flex: 1 1 140px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; background: var(--white);
+}
+.sum-big { font-size: 1.15rem; font-weight: 700; color: var(--navy); }
+.sum-big .sum-dim { color: var(--faint); font-weight: 500; }
+.sum-label { font-size: 0.7rem; color: var(--faint); margin-top: 2px; }
+.sum-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.sum-table th {
+  text-align: left; padding: 6px 10px; color: var(--faint); font-weight: 600;
+  border-bottom: 1px solid var(--line); font-size: 0.7rem;
+}
+.sum-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); }

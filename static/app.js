@@ -445,8 +445,67 @@ function renderExBanner() {
   if (fb) fb.onclick = () => showFixDiff(nextPassingStep());
 }
 
+// One-screen dashboard for a module's whole conversion: totals up top, then a
+// per-task table. Everything derives from the step list already in the detail
+// payload, so it works for finished and in-progress runs alike. (Steve liked
+// the summary-dashboard idea in the Jul 14 meeting.)
+async function exSummary(p) {
+  const d = state.detail;
+  const steps = d.steps || [];
+  const passed = steps.filter((s) => String(s.fev || "").startsWith("0:"));
+  const failed = steps.length - passed.length;
+  const plus = steps.reduce((a, s) => a + (s.plus || 0), 0);
+  const minus = steps.reduce((a, s) => a + (s.minus || 0), 0);
+  const times = steps.map((s) => s.mtime).filter(Boolean);
+  const wall = times.length > 1 ? Math.max(...times) - Math.min(...times) : 0;
+  const fmtWall = (sec) => sec >= 3600 ? `${(sec / 3600).toFixed(1)} h` : sec >= 60 ? `${Math.round(sec / 60)} min` : `${Math.round(sec)} s`;
+  const byModel = {};
+  steps.forEach((s) => { const f = modelFamily(s.model); if (f) byModel[f] = (byModel[f] || 0) + 1; });
+  const cache = { read: 0, write: 0, unc: 0 };
+  let anyCache = false;
+  steps.forEach((s) => {
+    const c = s.cache;
+    if (!c) return;
+    anyCache = true;
+    cache.read += c.cache_read || 0; cache.write += c.cache_write || 0; cache.unc += c.in || 0;
+  });
+  const hitPct = (cache.read + cache.unc) ? Math.round((100 * cache.read) / (cache.read + cache.unc)) : 0;
+  const lanes = [];
+  let cur = null;
+  steps.forEach((s) => {
+    if (!cur || s.task !== cur.task) { cur = { task: s.task, steps: 0, fails: 0, plus: 0, minus: 0, model: null }; lanes.push(cur); }
+    cur.steps += 1;
+    if (!String(s.fev || "").startsWith("0:")) cur.fails += 1;
+    cur.plus += s.plus || 0; cur.minus += s.minus || 0;
+    if (s.model) cur.model = s.model;
+  });
+  const complete = (d.root_files || []).includes("CONVERSION_COMPLETE.md");
+  const card = (big, label) => `<div class="sum-card"><div class="sum-big">${big}</div><div class="sum-label">${label}</div></div>`;
+  p.innerHTML = `
+    <div class="sum-cards">
+      ${card(`${lanes.length}`, complete ? "tasks, conversion complete" : "tasks so far")}
+      ${card(`${passed.length} <span class="sum-dim">/ ${steps.length}</span>`, "checkpoints passed FEV")}
+      ${card(`<span class="add">+${plus}</span> <span class="rem">−${minus}</span>`, "lines changed overall")}
+      ${card(fmtWall(wall), "wall-clock time")}
+      ${Object.keys(byModel).length ? card(Object.entries(byModel).map(([m, n]) => `${esc(m)} ${n}`).join(" · "), "checkpoints by model") : ""}
+      ${anyCache ? card(`${hitPct}%`, `prompt cache hit rate (${(cache.read / 1000).toFixed(1)}k read / ${(cache.unc / 1000).toFixed(1)}k uncached)`) : ""}
+    </div>
+    <table class="sum-table">
+      <thead><tr><th>Task</th><th>Checkpoints</th><th>Failed FEV</th><th>Lines</th><th>Finished by</th></tr></thead>
+      <tbody>
+      ${lanes.map((l) => `<tr>
+        <td>${esc(l.task || "(unlabeled)")}</td>
+        <td>${l.steps}</td>
+        <td>${l.fails ? `<span class="rem">${l.fails}</span>` : "0"}</td>
+        <td>${(l.plus || l.minus) ? `<span class="add">+${l.plus}</span> <span class="rem">−${l.minus}</span>` : "·"}</td>
+        <td>${l.model ? modelChip(l.model) : "·"}</td>
+      </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
 const EXTABS = [
-  ["diff", "Diff"], ["files", "Files"],
+  ["summary", "Summary"], ["diff", "Diff"], ["files", "Files"],
   ["notes", "Status"], ["fev", "FEV"], ["tracker", "Tracker"], ["sessions", "Sessions"],
 ];
 
@@ -468,7 +527,8 @@ function renderExTabs() {
 function renderExPanel() {
   const p = $("#ex-panel");
   p.innerHTML = `<div class="note">loading…</div>`;
-  const fns = { diff: exDiff, files: exFiles, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
+  p.scrollTop = 0;
+  const fns = { summary: exSummary, diff: exDiff, files: exFiles, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
   (fns[state.exTab] || exDiff)(p).catch((e) => {
     p.innerHTML = `<div class="note">⚠ ${esc(e.message)}</div>`;
   });
@@ -722,10 +782,53 @@ async function exDiff(p) {
   }
   const vs = $("#ex-vs-orig");
   if (vs) vs.onclick = async () => {
-    stack.innerHTML = `<details class="fdiff" open><summary><span class="fc-name">wip.tlv vs original Verilog</span></summary><div class="fdiff-body" id="ex-vs-host"><div class="note">loading…</div></div></details>`;
-    const dj2 = await api("diff", { mod: d.module.id, a_step: "root", a_name: "prepared.sv", b_step: s.key, b_name: "wip.tlv" });
-    renderSxS($("#ex-vs-host"), dj2.rows, "original Verilog", `step ${s.n} / wip.tlv`);
+    stack.innerHTML = `<details class="fdiff" open><summary><span class="fc-name">wip.tlv vs original Verilog</span>
+      <button class="btn-mini" id="ex-vs-mode">show as diff</button></summary>
+      <div class="fdiff-body" id="ex-vs-host"><div class="note">loading…</div></div></details>`;
+    // Default is plain panes, not a diff: at the end of a conversion nearly every
+    // line differs, so diff alignment is noise. (Steve, Jul 14 meeting.)
+    const [fa, fb] = await Promise.all([
+      api("file", { mod: d.module.id, step: "root", name: "prepared.sv" }),
+      api("file", { mod: d.module.id, step: s.key, name: "wip.tlv" }),
+    ]);
+    let asDiff = false;
+    const draw = async () => {
+      if (!asDiff) {
+        renderPlainSxS($("#ex-vs-host"), fa.content, fb.content, "original Verilog", `step ${s.n} / wip.tlv`);
+      } else {
+        const dj2 = await api("diff", { mod: d.module.id, a_step: "root", a_name: "prepared.sv", b_step: s.key, b_name: "wip.tlv" });
+        renderSxS($("#ex-vs-host"), dj2.rows, "original Verilog", `step ${s.n} / wip.tlv`);
+      }
+      const mb = $("#ex-vs-mode");
+      if (mb) { mb.textContent = asDiff ? "show side by side" : "show as diff"; }
+    };
+    $("#ex-vs-mode").onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); asDiff = !asDiff; draw(); };
+    draw();
   };
+}
+
+// Two independent panes with synchronized scrolling and their own line numbers.
+// No alignment, no change marking: for whole-conversion comparisons the two
+// sides share almost nothing, so this reads better than a diff.
+function renderPlainSxS(host, aText, bText, aLabel, bLabel) {
+  const pane = (label, text) => {
+    const lines = (text || "").split("\n");
+    return `<div class="psxs-pane"><div class="psxs-head">${esc(label)}</div><div class="psxs-scroll"><pre class="psxs-code">` +
+      lines.map((l, i) => `<span class="ln">${i + 1}</span>${esc(l)}\n`).join("") +
+      `</pre></div></div>`;
+  };
+  host.innerHTML = `<div class="psxs">${pane(aLabel, aText)}${pane(bLabel, bText)}</div>`;
+  const scrolls = host.querySelectorAll(".psxs-scroll");
+  let lock = false;
+  scrolls.forEach((el, i) => {
+    el.addEventListener("scroll", () => {
+      if (lock) return;
+      lock = true;
+      const other = scrolls[1 - i];
+      other.scrollTop = el.scrollTop;
+      requestAnimationFrame(() => { lock = false; });
+    });
+  });
 }
 
 function renderSxS(host, rows, aLabel, bLabel) {
