@@ -470,6 +470,26 @@ async function exSummary(p) {
     cache.read += c.cache_read || 0; cache.write += c.cache_write || 0; cache.unc += c.in || 0;
   });
   const hitPct = (cache.read + cache.unc) ? Math.round((100 * cache.read) / (cache.read + cache.unc)) : 0;
+  // Live cost, computed here rather than waiting on the router to write a dollar
+  // figure: every checkpoint already records its model and exact token counts,
+  // and list prices are public, so the total can grow checkpoint by checkpoint
+  // while a run is still in progress. Prices per 1M tokens, $/Mtok.
+  const PRICES = {
+    deepseek: { in: 0.14, out: 0.28, cacheRead: 0.014, cacheWrite: 0 },
+    claude: { in: 3.0, out: 15.0, cacheRead: 0.30, cacheWrite: 3.75 },
+  };
+  let costUsd = 0, anyCost = false;
+  const costByModel = {};
+  steps.forEach((s) => {
+    const c = s.cache, fam = modelFamily(s.model);
+    if (!c || !fam || !PRICES[fam]) return;
+    anyCost = true;
+    const p = PRICES[fam];
+    const usd = ((c.in || 0) * p.in + (c.out || 0) * p.out +
+                 (c.cache_read || 0) * p.cacheRead + (c.cache_write || 0) * p.cacheWrite) / 1e6;
+    costUsd += usd;
+    costByModel[fam] = (costByModel[fam] || 0) + usd;
+  });
   const lanes = [];
   let cur = null;
   steps.forEach((s) => {
@@ -530,6 +550,10 @@ async function exSummary(p) {
           { v: cache.unc, c: "mut", t: `${(cache.unc / 1000).toFixed(1)}k tokens uncached` },
         ])}
         <div class="sum-sparkrow">${spark(cacheSeq, 120, 26)}<span class="sum-sparklabel">per checkpoint: drops on a new task or after the 5-min expiry, climbs on retries</span></div>
+      </div>` : ""}
+      ${anyCost ? `<div class="sum-card sum-mini">
+        <div class="sum-big">$${costUsd.toFixed(2)}</div>
+        <div class="sum-label" title="${Object.entries(costByModel).map(([m, u]) => `${m} $${u.toFixed(2)}`).join(", ")}">cost so far, live</div>
       </div>` : ""}
       <div class="sum-card sum-mini"><div class="sum-big">${lanes.length}</div><div class="sum-label">tasks ${complete ? "total" : "so far"}</div></div>
       <div class="sum-card sum-mini">
