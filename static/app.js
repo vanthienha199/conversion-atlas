@@ -221,7 +221,12 @@ function stepStatus(s) {
   const raw = s.fev;
   if (raw == null || raw === "" || raw === "none") return { state: "none", label: "no FEV recorded" };
   const m = String(raw).match(/^\s*(\d+)\s*:\s*(.*)$/);
-  if (!m) return { state: "ok", label: String(raw) };
+  if (!m) {
+    // Some flow variants write bare words ("pass"/"fail") instead of "N: msg".
+    const w = String(raw).trim().toLowerCase();
+    if (/^(fail|failed|error)/.test(w)) return { state: "fail", label: String(raw) };
+    return { state: "ok", label: String(raw) };
+  }
   const code = +m[1], reason = m[2] || String(raw);
   return code === 0 ? { state: "ok", label: reason } : { state: "fail", code, label: reason };
 }
@@ -452,7 +457,7 @@ function renderExBanner() {
 async function exSummary(p) {
   const d = state.detail;
   const steps = d.steps || [];
-  const passed = steps.filter((s) => String(s.fev || "").startsWith("0:"));
+  const passed = steps.filter((s) => stepStatus(s).state === "ok");
   const failed = steps.length - passed.length;
   const plus = steps.reduce((a, s) => a + (s.plus || 0), 0);
   const minus = steps.reduce((a, s) => a + (s.minus || 0), 0);
@@ -495,7 +500,7 @@ async function exSummary(p) {
   steps.forEach((s) => {
     if (!cur || s.task !== cur.task) { cur = { task: s.task, steps: 0, fails: 0, plus: 0, minus: 0, model: null }; lanes.push(cur); }
     cur.steps += 1;
-    if (!String(s.fev || "").startsWith("0:")) cur.fails += 1;
+    if (stepStatus(s).state !== "ok") cur.fails += 1;
     cur.plus += s.plus || 0; cur.minus += s.minus || 0;
     if (s.model) cur.model = s.model;
   });
