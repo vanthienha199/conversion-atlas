@@ -192,6 +192,7 @@ def gen2_detail(mod):
             "fev_cnt": st.get("fev_cnt"),
             "model": st.get("model"),
             "cache": st.get("cache"),
+            "judge": read_json(os.path.join(sd, "judge.json")),
             "llm": st.get("llm"),
             "plus": plus,
             "minus": minus,

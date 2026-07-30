@@ -982,3 +982,12 @@ mark { padding: 0 1px; }
 .sum-table tr:hover td { background: #f6f7fb; }
 .sum-lanebar { min-width: 24px; }
 .sum-foot { margin-top: 8px; font-size: 0.66rem; color: var(--faint); }
+
+.judge-chip {
+  font-family: var(--mono); font-size: 0.6rem; font-weight: 600;
+  padding: 1px 5px; border-radius: 999px; white-space: nowrap;
+}
+.judge-chip.ok { background: #e6f5eb; color: var(--green-dk); }
+.judge-chip.bad { background: #fdeceb; color: var(--red-dk); }
+.hint.judge-bad { border-left: 3px solid var(--red-dk); padding-left: 8px; }
+.hint.judge-ok { border-left: 3px solid var(--green-dk); padding-left: 8px; }

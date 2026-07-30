@@ -254,6 +254,16 @@ function modelChip(model) {
   return `<span class="model-chip ${fam}" title="${esc(model)}">${esc(fam)}</span>`;
 }
 
+// Oversight judge verdict for a checkpoint, when the router recorded one.
+// The judge is a separate call that decides whether the task's GOAL was met
+// (FEV already proved behavior); its reason rides in the tooltip.
+function judgeChip(s) {
+  const j = s.judge;
+  if (!j || !j.verdict) return "";
+  const ok = j.verdict === "PASS";
+  return `<span class="judge-chip ${ok ? "ok" : "bad"}" title="judge (${esc(j.model || "")}): ${esc(j.reason || "")}">judge ${ok ? "✓" : "✗"}</span>`;
+}
+
 // Prompt-cache hit share for the LLM call behind a checkpoint, when the run
 // recorded it. Reads should dominate on retries within a task; a low share on
 // a retry means the cached prefix was invalidated or expired.
@@ -361,6 +371,7 @@ function renderExTimeline() {
       b.innerHTML = `<span class="ic">${icon[st.state]}</span>
         <span>Step ${esc(String(s.n))}</span>
         ${modelChip(s.model)}
+        ${judgeChip(s)}
         ${deltaChip(s)}
         ${cacheChip(s)}
         ${right}`;
@@ -428,6 +439,7 @@ function renderExBanner() {
   if (s.duration) badges += `<span class="badge info">took ${esc(s.duration)}</span>`;
   if (s.model) badges += `<span class="badge model ${modelFamily(s.model)}" title="model that produced this checkpoint">${esc(s.model)}</span>`;
   if (s.plus || s.minus) badges += `<span class="badge delta" title="lines of code changed at this checkpoint"><span class="d-plus">+${s.plus}</span> <span class="d-minus">-${s.minus}</span></span>`;
+  if (s.judge && s.judge.verdict) badges += `<span class="badge ${s.judge.verdict === "PASS" ? "ok" : "bad"}" title="oversight judge verdict">judge ${s.judge.verdict === "PASS" ? "✓" : "✗"}</span>`;
   let failBlock = "";
   if (st.state === "fail") {
     const np = nextPassingStep();
@@ -444,6 +456,7 @@ function renderExBanner() {
         ${s.task ? `<span class="sb-pos">· ${esc(s.task)}</span>` : ""}
       </div>
       ${s.llm ? `<div class="hint"><b>AI note:</b> ${esc(s.llm)}</div>` : ""}
+      ${s.judge && s.judge.reason ? `<div class="hint judge-${s.judge.verdict === "PASS" ? "ok" : "bad"}"><b>Judge ${s.judge.verdict === "PASS" ? "passed" : "failed"} this checkpoint:</b> ${esc(s.judge.reason)}</div>` : ""}
       ${failBlock}
     </div>`;
   const fb = $("#ex-fix");
