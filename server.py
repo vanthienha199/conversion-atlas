@@ -4,6 +4,7 @@ import difflib
 import json
 import mimetypes
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -682,30 +683,97 @@ def fev_runs_from_transcript(path):
     return runs
 
 
+# fev.sh leaves its work dirs under <module>/tmp/<id>/ (eqy, sby, sandpiper logs),
+# one dir per invocation, including FAILED attempts that never record a checkpoint.
+# These exist for every flavor and every runner (desktop agent, router, manual), so
+# they are the fallback FEV evidence when no transcript was captured.
+def fev_artifact_runs(mod):
+    tdir = os.path.join(mod["path"], "tmp")
+    runs = []
+    if not os.path.isdir(tdir):
+        return runs
+    try:
+        names = os.listdir(tdir)
+    except OSError:
+        return runs
+    for name in names:
+        p = os.path.join(tdir, name)
+        if name == "latest" or not os.path.isdir(p):
+            continue
+        mt = safe_mtime(p)
+        if mt is not None:
+            runs.append({"name": name, "path": p, "ts": mt})
+    runs.sort(key=lambda r: r["ts"])
+    return runs
+
+
+FEV_FAIL_RE = re.compile(r"DONE \(FAIL|DONE \(UNKNOWN|Failed to prove|returning status 1"
+                         r"|ERROR|job failed", re.I)
+
+
+# One fev.sh invocation's dir -> compact text: failing logs get a long tail (the
+# CEX / error is at the end), passing logs just their DONE line, so a failed
+# attempt reads like the error report the agent saw.
+def fev_artifact_output(run):
+    try:
+        logs = sorted(f for f in os.listdir(run["path"]) if f.endswith(".log"))
+    except OSError:
+        return ""
+    fails, oks = [], []
+    for f in logs:
+        txt = read_text(os.path.join(run["path"], f)) or ""
+        (fails if FEV_FAIL_RE.search(txt) else oks).append((f, txt))
+    parts = []
+    for f, txt in fails:
+        parts.append(f"==== {f} (FAILED) ====\n" + "\n".join(txt.splitlines()[-40:]))
+    for f, txt in oks:
+        parts.append(f"==== {f} ====\n" + "\n".join(txt.splitlines()[-4:]))
+    return "\n\n".join(parts)
+
+
 # Correlate a checkpoint to the fev.sh run that produced it: the last run that started
-# at or before the checkpoint was written. Surfaces the FEV output (the EQY error on a
-# failed attempt, the proof on a pass) so each step's "why" is visible from the transcript.
+# at or before the checkpoint was written. Prefers the captured transcript (exactly
+# what the agent saw); falls back to fev.sh's own tmp/ artifacts, which also cover
+# runs with no transcript (e.g. the stock desktop-agent flow in docker).
 def fevlog_for_step(mod, step_key):
     if mod.get("flavor") != "gen2":
         return {"found": False, "reason": "fev log correlation is gen2-only"}
-    tpath = module_transcript(mod)
-    if not tpath:
-        return {"found": False, "reason": "no transcript captured for this module"}
-    runs = fev_runs_from_transcript(tpath)
-    if not runs:
-        return {"found": False, "reason": "no fev.sh runs found in transcript"}
     try:
         ck_mtime = safe_mtime(resolve_in_module(mod, step_key, "status.json"))
     except PermissionError:
         ck_mtime = None
-    if ck_mtime:
-        before = [r for r in runs if r["ts"] <= ck_mtime + 5]
-        chosen = before[-1] if before else min(runs, key=lambda r: abs(r["ts"] - ck_mtime))
-    else:
-        chosen = runs[-1]
-    return {"found": True, "command": chosen["command"], "ts": chosen["ts"],
-            "output": chosen["output"], "runs": len(runs),
-            "transcript": os.path.basename(tpath)}
+
+    tpath = module_transcript(mod)
+    if tpath:
+        runs = fev_runs_from_transcript(tpath)
+        if runs:
+            if ck_mtime:
+                before = [r for r in runs if r["ts"] <= ck_mtime + 5]
+                chosen = before[-1] if before else min(runs, key=lambda r: abs(r["ts"] - ck_mtime))
+            else:
+                chosen = runs[-1]
+            return {"found": True, "source": "transcript", "command": chosen["command"],
+                    "ts": chosen["ts"], "output": chosen["output"], "runs": len(runs),
+                    "transcript": os.path.basename(tpath)}
+
+    aruns = fev_artifact_runs(mod)
+    if aruns:
+        if ck_mtime:
+            window = [r for r in aruns if r["ts"] <= ck_mtime + 5]
+            chosen = window[-1] if window else min(aruns, key=lambda r: abs(r["ts"] - ck_mtime))
+            stale = not window and abs(chosen["ts"] - ck_mtime) > 6 * 3600
+        else:
+            chosen, stale = aruns[-1], False
+        out = fev_artifact_output(chosen)
+        if out and not stale:
+            return {"found": True, "source": "artifacts", "command": f"tmp/{chosen['name']}/",
+                    "ts": chosen["ts"], "output": out[:6000], "runs": len(aruns),
+                    "transcript": f"tmp/{chosen['name']}"}
+        if stale:
+            return {"found": False, "reason": "no transcript, and fev.sh tmp/ artifacts "
+                    "near this step's time were already pruned (fev.sh keeps only recent runs)"}
+    return {"found": False, "reason": "no transcript captured for this module and no "
+            "fev.sh artifacts under tmp/"}
 
 
 def live_state(mod):

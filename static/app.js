@@ -806,17 +806,15 @@ function mountFileStepper(host, fname, d, opts = {}) {
   (tracker ? trackerChangedIdxs(d) : changedStepsFor(fname, d)).then((idxs) => { deltas = idxs; render(); }).catch(() => {});
 }
 
-// Whole-file view at a step, with changed lines highlighted vs the previous step
-// (green added, red removed). Uses the same diff rows but shows every line.
+// Whole-file view: the file exactly as it exists at this step, plain. Deleted
+// lines and change coloring belong to the Diff view only; mixing them in here
+// made "Full file" read as another diff (confusing, per Aug 12 review).
 async function renderFullFileAt(host, fname, idx, d) {
   const rows = await fileDiffRowsAt(fname, idx, d);
-  // rows are [type, aLineNum, aText, bLineNum, bText]
-  const line = (r) => {
-    const cls = r[0] === "add" ? "l-add" : r[0] === "del" ? "l-del" : r[0] === "chg" ? "l-chg" : "";
-    const txt = r[0] === "del" ? (r[2] ?? "") : (r[4] ?? r[2] ?? "");
-    return `<div class="ffl ${cls}">${esc(txt)}</div>`;
-  };
-  host.innerHTML = `<div class="fullfile">${rows.map(line).join("")}</div>`;
+  // rows are [type, aLineNum, aText, bLineNum, bText]; "del" rows have no b-side line
+  const lines = rows.filter((r) => r[0] !== "del")
+    .map((r) => `<div class="ffl">${esc(r[4] ?? r[2] ?? "")}</div>`);
+  host.innerHTML = `<div class="fullfile">${lines.join("")}</div>`;
 }
 
 async function exDiff(p) {
@@ -1079,8 +1077,9 @@ async function exFev(p) {
   const j = await api("fevlog", { mod: d.module.id, step: s.key });
   if (!j.found) {
     p.innerHTML = `<div class="note"><b>No correlated FEV output:</b> ${esc(j.reason || "unavailable")}.<br><br>
-      This panel pulls the <code>fev.sh</code> output the agent saw for this step out of the captured transcript,
-      so it needs a transcript in <code>transcripts/</code>.</div>`;
+      This panel shows the <code>fev.sh</code> output for this step, from the captured transcript when one
+      exists in <code>transcripts/</code>, otherwise from <code>fev.sh</code>'s own work dirs under
+      <code>tmp/</code> (kept only for recent runs).</div>`;
     return;
   }
   const fev = s.fev || "";
@@ -1093,7 +1092,9 @@ async function exFev(p) {
   p.innerHTML = `
     <div class="panel-toolbar">
       <span>FEV result the agent saw at step ${s.n}
-        <span class="muted">(transcript ${esc(j.transcript)}, ${j.runs} fev.sh runs)</span></span>
+        <span class="muted">${j.source === "artifacts"
+          ? `(fev.sh artifacts ${esc(j.transcript)}, ${j.runs} runs kept in tmp/)`
+          : `(transcript ${esc(j.transcript)}, ${j.runs} fev.sh runs)`}</span></span>
       <span class="fev-verdict ${pass ? "ok" : "err"}">${esc(fev)}</span>
     </div>
     <div class="panel-toolbar"><span class="muted"><code>${esc(j.command)}</code></span></div>
