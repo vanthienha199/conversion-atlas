@@ -21,6 +21,12 @@ checking) is the only gate that advances a task. Key mechanisms:
     MM_ACCEPT_DISTINCT=1 (per-config designs must actually differ).
   - attempts.jsonl: every worker attempt's feedback-in and full reply are
     recorded so the exact exchange is inspectable in the Console.
+  - Agent worker mode: provider "agent" in MM_PROVIDERS runs Claude Code
+    headless in the module dir; it edits design files directly with file
+    tools only (no shell), harness files are snapshotted and force-restored
+    if touched, and fev.sh/judge gate exactly as for API workers.
+  - Preflight: key files, docker image, fev.sh, and the agent CLI are
+    checked up front with clear errors before any paid call.
   - Resume: e6_state.json tracks completed tasks and the in-flight attempt
     budget; rerunning the router continues where it stopped.
 
@@ -36,13 +42,32 @@ import sys, os, json, subprocess, urllib.request, re, time
 ROUTER_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+if len(sys.argv) < 2 or not os.path.isdir(sys.argv[1]):
+    sys.exit("usage: router.py <module_dir>   (module_dir must exist and contain wip.tlv, fev.eqy, scripts/fev.sh)")
 MDIR = sys.argv[1]
-ORDER = json.load(open(os.environ.get("MM_ORDER", os.path.join(ROUTER_DIR, "tasks", "order.json"))))
+ORDER_PATH = os.environ.get("MM_ORDER", os.path.join(ROUTER_DIR, "tasks", "order.json"))
+ORDER_DIR = os.path.dirname(os.path.abspath(ORDER_PATH))
+ORDER = json.load(open(ORDER_PATH))
+# Task-file paths in the order file are resolved relative to the order file
+# itself, so the router works from any CWD.
+ORDER = [[name, path if os.path.isabs(path) else os.path.join(ORDER_DIR, path)] for name, path in ORDER]
 MAX_COST = {
     "deepseek": float(os.environ.get("MM_MAX_COST_DEEPSEEK", "2.0")),
     "claude": float(os.environ.get("MM_MAX_COST_CLAUDE", "5.0")),
 }
-MODEL_NAME = {"deepseek": "deepseek-v4-flash", "claude": "claude-sonnet-4-6"}
+MODEL_NAME = {"deepseek": "deepseek-v4-flash", "claude": "claude-sonnet-4-6",
+              "agent": "claude-code-agent"}
+
+# Agent worker mode (issue #8 direction, Steve Aug 18: "just ask the agent to
+# modify the file"): provider "agent" in MM_PROVIDERS invokes Claude Code
+# headless in the module dir. The agent edits design files directly with
+# file tools only (no shell), so edit formats do not apply; the harness still
+# owns fev.sh, the judge, and all acceptance checks. Harness files are
+# snapshotted and force-restored if the agent touches them.
+AGENT_CMD = os.environ.get("MM_AGENT_CMD", "claude")
+AGENT_MODEL = os.environ.get("MM_AGENT_MODEL", "sonnet")
+AGENT_MAX_TURNS = int(os.environ.get("MM_AGENT_MAX_TURNS", "40"))
+AGENT_TIMEOUT = int(os.environ.get("MM_AGENT_TIMEOUT", "900"))
 
 # Edit formats for the A/B experiment: the "..." omission style vs the
 # search/replace block style modern coding agents use. MM_EDIT_FORMAT=dots|sr.
@@ -335,6 +360,54 @@ def restore(originals):
             with open(p, "w") as f:
                 f.write(body)
 
+def snapshot_module():
+    snap = {}
+    for f in os.listdir(MDIR):
+        p = os.path.join(MDIR, f)
+        if os.path.isfile(p):
+            try:
+                snap[f] = open(p, encoding="utf-8", errors="replace").read()
+            except OSError:
+                pass
+    return snap
+
+AGENT_PREAMBLE = (
+    "You are a digital-design refactoring agent converting Verilog to TL-Verilog in "
+    "small, formally verified steps. You are working directly in this module directory. "
+    "Perform ONE refactoring task by editing the design files in place: wip.tlv, "
+    "fev.eqy, fev_full*.eqy, config.json, tracker.md. Rules:\n"
+    "- Do NOT run fev.sh, docker, or any command; the harness runs formal verification "
+    "after you finish, and a separate reviewing agent checks that the task's goal was "
+    "actually achieved. It cannot be talked into approving unfinished work.\n"
+    "- Do NOT edit these harness files: status.json, e6_state.json, feved.tlv, "
+    "fully_feved.tlv, orig.sv, prepared.sv, match_lines.eqy, attempts.jsonl.\n"
+    "- If the task genuinely requires no change, edit nothing and end your reply with "
+    "NO_CHANGE plus a ===JUSTIFICATION===/===END=== block naming the exact constructs "
+    "and why; vague effort claims are rejected.\n"
+    "- When your edits are complete, stop and summarize what you changed in 2-3 "
+    "sentences.\n\n"
+)
+
+def run_agent_worker(task_text, feedback):
+    prompt = AGENT_PREAMBLE + "# Task\n\n" + task_text + "\n"
+    if feedback:
+        prompt += ("\n# Previous attempt FAILED verification. Tool output:\n\n"
+                   + feedback[-3000:] + "\n\nFix the problem by editing the files.\n")
+    env = dict(os.environ)
+    env.pop("ANTHROPIC_API_KEY", None)
+    argv = [AGENT_CMD, "-p", "--model", AGENT_MODEL,
+            "--max-turns", str(AGENT_MAX_TURNS),
+            "--permission-mode", "acceptEdits",
+            "--allowedTools", "Read,Edit,Write,Grep,Glob"]
+    t_start = time.time()
+    try:
+        r = subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                           timeout=AGENT_TIMEOUT, cwd=MDIR, env=env)
+        report = (r.stdout or "") + (("\n[stderr] " + r.stderr) if r.returncode != 0 and r.stderr else "")
+    except subprocess.TimeoutExpired:
+        report = f"[agent timed out after {AGENT_TIMEOUT}s]"
+    return report.strip(), time.time() - t_start
+
 SERV_DIR = os.environ.get("MM_SERV_DIR", os.path.abspath("serv"))
 LLMTLV_DIR = os.environ.get("MM_LLMTLV_DIR", os.path.abspath("LLM_TLV"))
 TOOLSHIM_DIR = os.environ.get("MM_TOOLSHIM_DIR", os.path.join(ROUTER_DIR, "toolshim"))
@@ -499,6 +572,7 @@ def cache_str(u):
 
 stats = []
 t0 = time.time()
+agent_wall = [0.0]
 
 def print_summary():
     print("\n===== RUN SUMMARY =====")
@@ -509,6 +583,8 @@ def print_summary():
     pct = 100.0 * cache_totals["read"] / tot if tot else 0.0
     print(f"cache: read {cache_totals['read']} / write {cache_totals['write']} / uncached {cache_totals['in']} (hit {pct:.0f}%)")
     print(f"wall clock: {(time.time()-t0)/60:.1f} min")
+    if agent_wall[0]:
+        print(f"agent worker wall: {agent_wall[0]/60:.1f} min (subscription, no API cost)")
 
 STATE = os.path.join(MDIR, "e6_state.json")
 _raw_state = json.load(open(STATE)) if os.path.exists(STATE) else {}
@@ -522,8 +598,40 @@ else:
 def save_state():
     json.dump({"done": done_tasks, "inflight": inflight}, open(STATE, "w"), indent=1)
 
-PROVIDERS = [tuple(x.split(":")) for x in os.environ.get("MM_PROVIDERS", "deepseek:2,claude:2").split(",")]
+PROVIDERS = [tuple(x.strip().split(":")) for x in os.environ.get("MM_PROVIDERS", "deepseek:2,claude:2").split(",") if x.strip()]
 PROVIDERS = [(p, int(n)) for p, n in PROVIDERS]
+
+# Preflight (audit Aug 25): fail fast with clear messages instead of burning
+# retries or paid calls against a broken environment.
+def _preflight():
+    errs = []
+    used = {p for p, _ in PROVIDERS}
+    keyfiles = {"deepseek": os.path.expanduser(os.environ.get("MM_DEEPSEEK_KEY_FILE", "~/.secrets/deepseek_key"))}
+    if JUDGE_ON or "claude" in used:
+        keyfiles["claude"] = os.path.expanduser(os.environ.get("MM_ANTHROPIC_KEY_FILE", "~/.secrets/anthropic_key"))
+    for prov, kf in keyfiles.items():
+        if prov in used or (prov == "claude" and JUDGE_ON):
+            if not os.path.isfile(kf):
+                errs.append(f"API key file for {prov} not found: {kf}")
+    if not os.path.isfile(os.path.join(MDIR, "scripts", "fev.sh")) and not os.path.islink(os.path.join(MDIR, "scripts")):
+        errs.append(f"no scripts/fev.sh under {MDIR} (is this a conversion work dir?)")
+    try:
+        r = subprocess.run(["docker", "image", "inspect", DOCKER_IMAGE],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            errs.append(f"docker image {DOCKER_IMAGE} not found (build it from Dockerfile.fev)")
+    except FileNotFoundError:
+        errs.append("docker not found on PATH")
+    except Exception as e:
+        errs.append(f"docker preflight failed: {e}")
+    if "agent" in used:
+        try:
+            subprocess.run([AGENT_CMD, "--version"], capture_output=True, timeout=30)
+        except FileNotFoundError:
+            errs.append(f"agent worker command not found: {AGENT_CMD} (install Claude Code)")
+    if errs:
+        sys.exit("PREFLIGHT FAILED:\n  - " + "\n  - ".join(errs))
+_preflight()
 
 for tname, tfile in ORDER:
     if tname in done_tasks:
@@ -566,9 +674,86 @@ for tname, tfile in ORDER:
     for pidx, (provider, tries) in enumerate(PROVIDERS):
         start = burned.get(provider, 0) + 1
         for a in range(start, tries + 1):
-            print(f"  [{provider} #{a}] calling API ...", flush=True)
             inflight["used"][provider] = a
             save_state()
+            if provider == "agent":
+                print(f"  [agent #{a}] running Claude Code worker ...", flush=True)
+                before_snap = snapshot_module()
+                report, wall = run_agent_worker(task, feedback)
+                after_snap = snapshot_module()
+                touched_harness = [f for f in HARNESS_FILES
+                                   if before_snap.get(f) != after_snap.get(f)]
+                if touched_harness:
+                    restore({f: before_snap.get(f) for f in touched_harness})
+                    print(f"  [agent #{a}] RESTORED harness files it touched: {touched_harness}")
+                changed = sorted(f for f in set(before_snap) | set(after_snap)
+                                 if f not in HARNESS_FILES and f != "attempts.jsonl"
+                                 and before_snap.get(f) != after_snap.get(f))
+                originals = {f: before_snap.get(f) for f in changed}
+                log_attempt_exchange(tname, "agent", a, feedback, report, 0.0)
+                agent_wall[0] += wall
+                if not changed:
+                    nc_just = extract_justification(report)
+                    print(f"  [agent #{a}] no design files changed (wall {wall:.0f}s) -> judged as NO_CHANGE")
+                    if ACCEPT_GLOB and accept_count() <= accept_base:
+                        feedback = (f"NO_CHANGE is not acceptable for this task: it explicitly requires "
+                                    f"creating new files matching '{ACCEPT_GLOB}', and none exist yet. "
+                                    f"Create the required files.")
+                        continue
+                    if JUDGE_ON:
+                        jp, jreason, jc = judge(tname, task, task_before, task_before,
+                                                justification=nc_just, nochange=True)
+                        print(f"  [judge:no-change] {'PASS' if jp else 'FAIL'} (${jc:.4f})"
+                              + ("" if jp else f": {jreason[:150]}"))
+                        if not jp:
+                            feedback = ("You made no edits, but a separate reviewing agent judged that "
+                                        "this task DOES require work on this code. Its reason:\n\n"
+                                        + jreason + "\n\nDo the required work by editing the files.")
+                            continue
+                    done = True; used = "agent (no-change)"; break
+                files = changed
+                set_status_fields(model=MODEL_NAME["agent"],
+                                  cache={"in": 0, "out": 0, "cache_read": 0, "cache_write": 0})
+                ok, out = run_fev()
+                print(f"  [agent #{a}] files={files} fev={'PASS' if ok else 'FAIL'} (wall {wall:.0f}s)")
+                if ok:
+                    if acceptance_ok(accept_base) and distinct_ok():
+                        if JUDGE_ON:
+                            if "wip.tlv" in files:
+                                jp, jreason, jc = judge(tname, task, task_before, snap("wip.tlv"),
+                                                        justification=extract_justification(report))
+                            else:
+                                # Design credit without touching wip.tlv (audit Aug 25 dodge
+                                # gap): judge whether leaving the design unchanged is the
+                                # correct outcome for this task.
+                                jp, jreason, jc = judge(tname, task, task_before, task_before,
+                                                        justification=extract_justification(report), nochange=True)
+                            write_judge_record(tname, jp, jreason, jc)
+                            print(f"  [judge] {'PASS' if jp else 'FAIL'} (${jc:.4f})" + ("" if jp else f": {jreason[:150]}"))
+                            if not jp:
+                                feedback = ("FEV passed (behavior is preserved), but a separate reviewing agent "
+                                            "judged the task goal NOT achieved. Its reason:\n\n" + jreason +
+                                            "\n\nComplete the remaining refactoring from the current state of the files.")
+                                continue
+                        done = True; used = "agent"; break
+                    if not acceptance_ok(accept_base):
+                        print(f"  [agent #{a}] fev PASS but required outputs missing ({ACCEPT_GLOB}), rejected")
+                        feedback = (f"FEV passed, but the task's required outputs are missing: no new files "
+                                    f"matching '{ACCEPT_GLOB}' were created. The task explicitly requires "
+                                    f"creating one per parameter set. Create them now.")
+                    else:
+                        print(f"  [agent #{a}] fev PASS but all per-config designs are IDENTICAL, rejected")
+                        feedback = ("FEV passed, but all generated per-configuration designs (wip_*.sv) are "
+                                    "byte-identical, so the alternate configuration does not actually change "
+                                    "elaboration and the check is vacuous. Likely cause: a hardcoded m5 "
+                                    "var(...) in wip.tlv overrides the per-config m5 definition. Restructure "
+                                    "so the configuration genuinely affects the design, then re-verify.")
+                    continue
+                feedback = enrich_feedback(out)
+                restore(originals)
+                revert()
+                continue
+            print(f"  [{provider} #{a}] calling API ...", flush=True)
             resp, u = call_with_retry(provider, build_user(task, feedback))
             c = track(provider, u)
             print(f"    ({cache_str(u)})")
@@ -589,7 +774,7 @@ for tname, tfile in ORDER:
                     print(f"  [{provider} #{a}] NO_CHANGE (${c:.4f}) -> cross-check by {checker}")
                     vresp, vu = call_with_retry(checker, build_user(task, feedback))
                     vc = track(checker, vu)
-                    if "NO_CHANGE" in vresp and "===FILE" not in vresp:
+                    if is_no_change(vresp):
                         print(f"  [{checker} verify] agrees NO_CHANGE (${vc:.4f})")
                         # Every NO_CHANGE outcome goes through the judge:
                         # workers never referee their own intent.
@@ -626,9 +811,16 @@ for tname, tfile in ORDER:
                         ok, out = run_fev()
                         print(f"  [{checker} verify] DISAGREES, files={vfiles} fev={'PASS' if ok else 'FAIL'} (${vc:.4f})")
                         if ok:
-                            if JUDGE_ON and "wip.tlv" in vfiles:
-                                jp, jreason, jc = judge(tname, task, task_before, snap("wip.tlv"),
-                                                        justification=extract_justification(vresp))
+                            if JUDGE_ON:
+                                if "wip.tlv" in vfiles:
+                                    jp, jreason, jc = judge(tname, task, task_before, snap("wip.tlv"),
+                                                            justification=extract_justification(vresp))
+                                else:
+                                    # Design credit without touching wip.tlv (audit Aug 25 dodge
+                                    # gap): judge whether leaving the design unchanged is the
+                                    # correct outcome for this task.
+                                    jp, jreason, jc = judge(tname, task, task_before, task_before,
+                                                            justification=extract_justification(vresp), nochange=True)
                                 write_judge_record(tname, jp, jreason, jc)
                                 print(f"  [judge] {'PASS' if jp else 'FAIL'} (${jc:.4f})" + ("" if jp else f": {jreason[:150]}"))
                                 if not jp:
@@ -689,9 +881,16 @@ for tname, tfile in ORDER:
             print(f"  [{provider} #{a}] files={files} fev={'PASS' if ok else 'FAIL'} (${c:.4f})")
             if ok:
                 if acceptance_ok(accept_base) and distinct_ok():
-                    if JUDGE_ON and "wip.tlv" in files:
-                        jp, jreason, jc = judge(tname, task, task_before, snap("wip.tlv"),
-                                                justification=extract_justification(resp))
+                    if JUDGE_ON:
+                        if "wip.tlv" in files:
+                            jp, jreason, jc = judge(tname, task, task_before, snap("wip.tlv"),
+                                                    justification=extract_justification(resp))
+                        else:
+                            # Design credit without touching wip.tlv (audit Aug 25 dodge
+                            # gap): judge whether leaving the design unchanged is the
+                            # correct outcome for this task.
+                            jp, jreason, jc = judge(tname, task, task_before, task_before,
+                                                    justification=extract_justification(resp), nochange=True)
                         write_judge_record(tname, jp, jreason, jc)
                         print(f"  [judge] {'PASS' if jp else 'FAIL'} (${jc:.4f})" + ("" if jp else f": {jreason[:150]}"))
                         if not jp:
