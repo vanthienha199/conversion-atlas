@@ -683,6 +683,34 @@ def fev_runs_from_transcript(path):
     return runs
 
 
+# The router writes attempts.jsonl in the module dir: one record per worker API
+# call with the feedback it received and its full reply, so the exact exchange
+# is inspectable after the fact (runs are otherwise stateless).
+def attempts_for_task(mod, task):
+    p = os.path.join(mod["path"], "attempts.jsonl")
+    if not os.path.isfile(p):
+        return {"found": False, "reason": "no attempts.jsonl in this module "
+                "(runs before Aug 18 2026 recorded outcomes only, not exchanges)"}
+    out = []
+    try:
+        for line in open(p, errors="replace"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if task and rec.get("task") != task:
+                continue
+            rec["reply"] = (rec.get("reply") or "")[:20000]
+            rec["feedback_in"] = (rec.get("feedback_in") or "")[:8000]
+            out.append(rec)
+    except OSError:
+        return {"found": False, "reason": "attempts.jsonl unreadable"}
+    return {"found": True, "attempts": out}
+
+
 # fev.sh leaves its work dirs under <module>/tmp/<id>/ (eqy, sby, sandpiper logs),
 # one dir per invocation, including FAILED attempts that never record a checkpoint.
 # These exist for every flavor and every runner (desktop agent, router, manual), so
@@ -974,6 +1002,9 @@ class Handler(BaseHTTPRequestHandler):
             sid = q.get("id", [""])[0]
             mod = get_mod(q) if sid.startswith("repo/") else None
             return self.send_json(load_session(sid, mod))
+        if route == "/api/attempts":
+            mod = get_mod(q)
+            return self.send_json(attempts_for_task(mod, q.get("task", [""])[0]))
         if route == "/api/fevlog":
             mod = get_mod(q)
             return self.send_json(fevlog_for_step(mod, q.get("step", [""])[0]))

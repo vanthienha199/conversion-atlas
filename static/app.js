@@ -601,7 +601,7 @@ async function exSummary(p) {
 
 const EXTABS = [
   ["summary", "Summary"], ["diff", "Diff"], ["files", "Files"],
-  ["notes", "Status"], ["fev", "FEV"], ["tracker", "Tracker"], ["sessions", "Sessions"],
+  ["notes", "Status"], ["fev", "FEV"], ["attempts", "Attempts"], ["tracker", "Tracker"], ["sessions", "Sessions"],
 ];
 
 function renderExTabs() {
@@ -623,7 +623,7 @@ function renderExPanel() {
   const p = $("#ex-panel");
   p.innerHTML = `<div class="note">loading…</div>`;
   p.scrollTop = 0;
-  const fns = { summary: exSummary, diff: exDiff, files: exFiles, notes: exNotes, fev: exFev, tracker: exTracker, sessions: exSessions };
+  const fns = { summary: exSummary, diff: exDiff, files: exFiles, notes: exNotes, fev: exFev, attempts: exAttempts, tracker: exTracker, sessions: exSessions };
   (fns[state.exTab] || exDiff)(p).catch((e) => {
     p.innerHTML = `<div class="note">⚠ ${esc(e.message)}</div>`;
   });
@@ -1070,6 +1070,34 @@ async function exTracker(p) {
     ${diffHtml ? `<div class="tracker-diff">${diffHtml}</div>` : `<div class="note">No tracker notes recorded for this step.</div>`}
     <details class="tracker-full" open><summary>Tracker after this step (${esc(afterLabel)})</summary><div class="md-card md">${md(after)}</div></details>
     <details class="tracker-full"><summary>Tracker as captured at this step, before the agent reflected</summary><div class="md-card md">${md(before)}</div></details>`;
+}
+
+// Attempts tab: the exact worker exchange per attempt, from attempts.jsonl
+// written by the router (one record per API call: feedback in, full reply out).
+async function exAttempts(p) {
+  const d = state.detail, s = curStep();
+  const j = await api("attempts", { mod: d.module.id, task: s.task || "" });
+  if (!j.found) {
+    p.innerHTML = `<div class="note"><b>No attempt exchanges:</b> ${esc(j.reason || "unavailable")}.</div>`;
+    return;
+  }
+  if (!j.attempts.length) {
+    p.innerHTML = `<div class="note">No captured attempts for task "${esc(s.task || "")}".
+      Attempt capture began Aug 18; earlier runs recorded outcomes only.</div>`;
+    return;
+  }
+  p.innerHTML = `
+    <div class="panel-toolbar"><span>${j.attempts.length} attempt(s) for
+      <b>${esc(s.task || "this task")}</b> <span class="muted">(newest last, full reply and the
+      feedback each attempt received)</span></span></div>` +
+    j.attempts.map((a) => `
+      <details class="tracker-full">
+        <summary>${esc(a.provider)} #${a.attempt} · ${esc(a.ts)} · $${(a.cost_usd ?? 0).toFixed(4)}</summary>
+        ${a.feedback_in ? `<div class="note"><b>Feedback given to this attempt:</b>
+          <pre class="fev-out">${esc(a.feedback_in)}</pre></div>` : `<div class="note">First attempt, no feedback.</div>`}
+        <div class="note"><b>Model reply:</b></div>
+        <pre class="fev-out">${esc(a.reply)}</pre>
+      </details>`).join("");
 }
 
 async function exFev(p) {
