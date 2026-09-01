@@ -83,3 +83,37 @@ completed conversion used exactly:
 (adjust the right-hand names to the branch labels you choose; simplest is to
 name your m5 branch blocks ww1 / separate to reuse these lines verbatim).
 Keep the strategies section untouched.
+
+ADDITIONAL, FROM THE AGENT-WORKER ROUND (the reviewer rejected attempts that
+created the configs but left wip.tlv untouched): creating config.json and the
+per-config eqy files is only HALF the task. The deliverable also includes
+restructuring wip.tlv itself: the parameter-selected generate branches must
+become m5-conditioned TEXT blocks so each configuration elaborates only its
+own arm. Concretely, inside the \SV_plus region replace
+
+   generate
+      if (W == 1) begin : gen_immdec_w_eq_1
+         <W1 code>
+      end else begin : gen_immdec_w_eq_4
+         <W4 code>
+      end
+   endgenerate
+
+with
+
+   m5_if_eq_block(m5_cond_w_1, 1, ['
+      <W1 code, byte-identical>
+   '], ['
+      <W4 code, byte-identical>
+   '])
+
+and likewise the inner SHARED_RFADDR_IMM_REGS branch with
+m5_if_eq_block(m5_cond_shared, 1, [' ... '], [' ... ']). Keep the Verilog
+inside each arm byte-identical to the original branch. Because the generate
+scope names (gen_immdec_w_eq_1, gen_shared_imm_regs, gen_separate_imm_regs)
+disappear from the gate side, add gold-match lines to fev.eqy mapping each
+scoped gold register to its now-flat gate name (e.g.
+gold-match gen_immdec_w_eq_1.imm31 imm31), and put the same gold-side scoped
+names in the per-config fev_full files as shown above. FEV passing with the
+generate blocks still present does NOT complete this task; the reviewer
+checks wip.tlv.

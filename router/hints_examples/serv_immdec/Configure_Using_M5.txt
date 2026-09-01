@@ -1,106 +1,15 @@
-User guidance, verified by manually reproducing a fully green fev.sh run
-("All FEV runs successful") starting from your exact current state. Your
-previous attempts failed for FOUR independent reasons. All four fixes are
-required. Every snippet below is byte-exact from the verified run.
+User guidance for "Configure Using M5", verified by a manually reproduced
+fully green run on this module in this exact mid-conversion state (m5 blocks
+in place, registers still flat plain names like imm31, imm19_12_20).
 
-(1) config.json M5_configs has the wrong schema.
-fev.sh parses it with:  jq '.M5_configs | to_entries[] | "\(.key):\(.value)"'
-and passes each VALUE VERBATIM as sandpiper-saas command-line arguments.
-An array-of-objects schema (label/params/M5_defines) turns into garbage
-arguments that SandPiper silently ignores, so no m5 defines are set and
-SandPiper exits with status 1. Replace config.json with exactly:
+The failure signature you are hitting (full FEV failing partitions named
+serv_immdec.o_rs2_addr.4 / o_rs1_addr.4 / o_rd_addr.4 with basecase passing
+and induction UNKNOWN) means MATCH LINES, not logic: gold (prepared.sv) still
+has the generate scope names while your gate is flat, and without gold-match
+lines EQY cannot cut the shift registers, so induction fails spuriously.
 
-{
-  "top": "serv_immdec",
-  "M5_configs": {
-    "W_1_SHARED_1": "--m5def cond_w_1=1 --m5def cond_shared=1",
-    "W_1_SHARED_0": "--m5def cond_w_1=1 --m5def cond_shared=0",
-    "W_4": "--m5def cond_w_1=0"
-  },
-  "default_config": "W_1_SHARED_1"
-}
+(1) fev_full.eqy [match serv_immdec] section must be exactly:
 
-(2) wip.tlv has TWO REAL LOGIC BUGS, inherited from earlier tasks and never
-caught because FEV only ever compiled the default (shared) configuration.
-The original Verilog in the non-default branches uses two sequential if
-blocks: `if (i_wb_en) begin ... end  if (i_cnt_en) begin ... end`, so when
-both are 1 the i_cnt_en assignment WINS (last assignment in the always
-block), and the shifts are NOT gated by i_immdec_en. Your ternaries copied
-the shared-arm semantics (i_wb_en priority, i_immdec_en gating) into both
-non-default arms. FEV of the non-default configs fails on exactly this.
-
-(2a) In the m5_cond_shared ELSE arm ("separate"), keep the reg declarations,
-assigns, and your existing `always @(posedge ...)` wrapper line, and make the
-register updates inside the always block exactly:
-
-                     imm31       <= i_wb_en ? i_wb_rdt[31] : imm31;
-                     imm19_12_20 <= i_cnt_en ? {i_ctrl[3] ? signbit : imm24_20[0], imm19_12_20[8 : 1]} :
-                                    i_wb_en  ? {i_wb_rdt[19 : 12], i_wb_rdt[20]} :
-                                               imm19_12_20;
-                     imm7        <= i_cnt_en ? signbit :
-                                    i_wb_en  ? i_wb_rdt[7] :
-                                               imm7;
-                     imm30_25    <= i_cnt_en ? {i_ctrl[2] ? imm7 : i_ctrl[1] ? signbit : imm19_12_20[0], imm30_25[5 : 1]} :
-                                    i_wb_en  ? i_wb_rdt[30 : 25] :
-                                               imm30_25;
-                     imm24_20    <= i_cnt_en ? {imm30_25[0], imm24_20[4 : 1]} :
-                                    i_wb_en  ? i_wb_rdt[24 : 20] :
-                                               imm24_20;
-                     imm11_7     <= i_cnt_en ? {imm30_25[0], imm11_7[4 : 1]} :
-                                    i_wb_en  ? i_wb_rdt[11 : 7] :
-                                               imm11_7;
-                     rd_addr     <= i_wb_en ? i_wb_rdt[11 : 7]  : rd_addr;
-                     rs1_addr    <= i_wb_en ? i_wb_rdt[19 : 15] : rs1_addr;
-                     rs2_addr    <= i_wb_en ? i_wb_rdt[24 : 20] : rs2_addr;
-
-(2b) In the m5_cond_w_1 ELSE arm (W=4): every i* shift register must be
-`i_cnt_en ? <shift> : i_wb_en ? <wb> : <hold>` (your current code has
-i_wb_en first, which is wrong), and i22's shift source must be i26 (your
-current code self-holds i22 with an i_ctrl[3] mux, which is wrong).
-i31, rd_addr, rs1_addr, rs2_addr are written only under i_wb_en; keep them
-as they are. Verified lines:
-
-                  i31     <= i_wb_en ? i_wb_rdt[31] : i31;
-
-                  // Bit lane 3
-                  i19     <= i_cnt_en ? (i_ctrl[3] ? signbit : i23) : i_wb_en ? i_wb_rdt[19] : i19;
-                  i15     <= i_cnt_en ? i19 : i_wb_en ? i_wb_rdt[15] : i15;
-                  i20     <= i_cnt_en ? i15 : i_wb_en ? i_wb_rdt[20] : i20;
-                  i7      <= i_cnt_en ? signbit : i_wb_en ? i_wb_rdt[7] : i7;
-                  i27     <= i_cnt_en ? (i_ctrl[2] ? i7 : i_ctrl[1] ? signbit : i20) : i_wb_en ? i_wb_rdt[27] : i27;
-                  i23     <= i_cnt_en ? i27 : i_wb_en ? i_wb_rdt[23] : i23;
-                  i10     <= i_cnt_en ? i27 : i_wb_en ? i_wb_rdt[10] : i10;
-
-                  // Bit lane 2
-                  i22     <= i_cnt_en ? i26 : i_wb_en ? i_wb_rdt[22] : i22;
-                  i9      <= i_cnt_en ? i26 : i_wb_en ? i_wb_rdt[9] : i9;
-                  i26     <= i_cnt_en ? i30 : i_wb_en ? i_wb_rdt[26] : i26;
-                  i30     <= i_cnt_en ? ((i_ctrl[1] | i_ctrl[2]) ? signbit : i14) : i_wb_en ? i_wb_rdt[30] : i30;
-                  i14     <= i_cnt_en ? i18 : i_wb_en ? i_wb_rdt[14] : i14;
-                  i18     <= i_cnt_en ? (i_ctrl[3] ? signbit : i22) : i_wb_en ? i_wb_rdt[18] : i18;
-
-                  // Bit lane 1
-                  i21     <= i_cnt_en ? i25 : i_wb_en ? i_wb_rdt[21] : i21;
-                  i8      <= i_cnt_en ? i25 : i_wb_en ? i_wb_rdt[8] : i8;
-                  i25     <= i_cnt_en ? i29 : i_wb_en ? i_wb_rdt[25] : i25;
-                  i29     <= i_cnt_en ? ((i_ctrl[1] | i_ctrl[2]) ? signbit : i13) : i_wb_en ? i_wb_rdt[29] : i29;
-                  i13     <= i_cnt_en ? i17 : i_wb_en ? i_wb_rdt[13] : i13;
-                  i17     <= i_cnt_en ? (i_ctrl[3] ? signbit : i21) : i_wb_en ? i_wb_rdt[17] : i17;
-
-                  // Bit lane 0
-                  i7_2    <= i_cnt_en ? i11 : i_wb_en ? i_wb_rdt[7] : i7_2;
-                  i11     <= i_cnt_en ? i28 : i_wb_en ? i_wb_rdt[11] : i11;
-                  i20_2   <= i_cnt_en ? i24 : i_wb_en ? i_wb_rdt[20] : i20_2;
-                  i24     <= i_cnt_en ? i28 : i_wb_en ? i_wb_rdt[24] : i24;
-                  i28     <= i_cnt_en ? ((i_ctrl[1] | i_ctrl[2]) ? signbit : i12) : i_wb_en ? i_wb_rdt[28] : i28;
-                  i12     <= i_cnt_en ? i16 : i_wb_en ? i_wb_rdt[12] : i12;
-                  i16     <= i_cnt_en ? (i_ctrl[3] ? signbit : i20_2) : i_wb_en ? i_wb_rdt[16] : i16;
-
-(3) fev.eqy and fev_full.eqy carry STALE gold-match lines whose gate names
-(ww1_*) no longer exist; the real gate names are plain (imm31, ...). In
-BOTH files, the [match serv_immdec] section must be exactly:
-
-[match serv_immdec]
 gold-match gen_immdec_w_eq_1.imm31 imm31
 gold-match gen_immdec_w_eq_1.imm19_12_20 imm19_12_20
 gold-match gen_immdec_w_eq_1.imm7 imm7
@@ -109,54 +18,20 @@ gold-match gen_immdec_w_eq_1.imm24_20 imm24_20
 gold-match gen_immdec_w_eq_1.imm11_7 imm11_7
 gold-match gen_immdec_w_eq_1.signbit signbit
 
-NOTE: after every SUCCESSFUL fev.sh run, the harness consumes and EMPTIES
-the match section of fev.eqy (it migrates the lines into the full-FEV
-config). Incremental FEV's [gold] must therefore read feved.sv (the last
-FEV-passed state, regenerated each run), NOT prepared.sv: against feved.sv
-a no-change run passes with an empty match section, and only the renames
-you introduce in the current edit need match lines. If [gold] reads
-prepared.sv, every run after the first success fails with spurious
-induction UNKNOWNs on the o_* output partitions.
+(substitute YOUR current flat register names on the gate side if they differ)
 
-(4) Full FEV needs one .eqy file per configuration; only the default exists.
-Create fev_full_W_1_SHARED_0.eqy as a copy of fev_full.eqy with:
-  - [gate] reads wip_W_1_SHARED_0.sv (instead of wip.sv)
-  - [script] first line: chparam -set W 1 -set SHARED_RFADDR_IMM_REGS 0
-  - three extra match lines appended to the section from (3):
+(2) fev_full_W_1_SHARED_0.eqy: same seven lines PLUS
 gold-match gen_immdec_w_eq_1.gen_separate_imm_regs.rd_addr rd_addr
 gold-match gen_immdec_w_eq_1.gen_separate_imm_regs.rs1_addr rs1_addr
 gold-match gen_immdec_w_eq_1.gen_separate_imm_regs.rs2_addr rs2_addr
+with [gate] reading wip_W_1_SHARED_0.sv and [script] first line
+chparam -set W 1 -set SHARED_RFADDR_IMM_REGS 0
 
-Create fev_full_W_4.eqy as a copy of fev_full.eqy with:
-  - [gate] reads wip_W_4.sv
-  - [script] first line: chparam -set W 4
-  - in [collect *], enable `group .*` (uncommented)
-  - [match serv_immdec] section replaced entirely by:
+(3) fev_full_W_4.eqy: [gate] reads wip_W_4.sv, [script] first line
+chparam -set W 4, enable `group .*` in [collect *], and the match section is
+one line per W=4 register, old prepared scoped name -> your flat name:
 gold-match gen_immdec_w_eq_4.i7 i7
-gold-match gen_immdec_w_eq_4.i8 i8
-gold-match gen_immdec_w_eq_4.i9 i9
-gold-match gen_immdec_w_eq_4.i10 i10
-gold-match gen_immdec_w_eq_4.i11 i11
-gold-match gen_immdec_w_eq_4.i12 i12
-gold-match gen_immdec_w_eq_4.i13 i13
-gold-match gen_immdec_w_eq_4.i14 i14
-gold-match gen_immdec_w_eq_4.i15 i15
-gold-match gen_immdec_w_eq_4.i16 i16
-gold-match gen_immdec_w_eq_4.i17 i17
-gold-match gen_immdec_w_eq_4.i18 i18
-gold-match gen_immdec_w_eq_4.i19 i19
-gold-match gen_immdec_w_eq_4.i20 i20
-gold-match gen_immdec_w_eq_4.i21 i21
-gold-match gen_immdec_w_eq_4.i22 i22
-gold-match gen_immdec_w_eq_4.i23 i23
-gold-match gen_immdec_w_eq_4.i24 i24
-gold-match gen_immdec_w_eq_4.i25 i25
-gold-match gen_immdec_w_eq_4.i26 i26
-gold-match gen_immdec_w_eq_4.i27 i27
-gold-match gen_immdec_w_eq_4.i28 i28
-gold-match gen_immdec_w_eq_4.i29 i29
-gold-match gen_immdec_w_eq_4.i30 i30
-gold-match gen_immdec_w_eq_4.i31 i31
+... (i8 through i31 likewise) ...
 gold-match gen_immdec_w_eq_4.i7_2 i7_2
 gold-match gen_immdec_w_eq_4.i20_2 i20_2
 gold-match gen_immdec_w_eq_4.signbit signbit
@@ -164,5 +39,20 @@ gold-match gen_immdec_w_eq_4.rd_addr rd_addr
 gold-match gen_immdec_w_eq_4.rs1_addr rs1_addr
 gold-match gen_immdec_w_eq_4.rs2_addr rs2_addr
 
-Do not rename any signals. Do not change [strategy] sections. With all four
-fixes applied in one attempt, fev.sh reaches "All FEV runs successful".
+(4) SEMANTIC CHECK of the non-default arms, the other historical failure at
+this step. The ORIGINAL Verilog in the separate branch and the W=4 branch
+uses two sequential if blocks (`if (i_wb_en) begin ... end if (i_cnt_en)
+begin ... end`), so when both enables are 1 the i_cnt_en assignment WINS,
+and those shifts are NOT gated by i_immdec_en. If an earlier ternary
+conversion gave those arms i_wb_en-first priority or immdec_en gating
+(copying the shared arm's semantics), the non-default configs will fail FEV
+with real counterexamples on the imm shift registers. The correct ternary
+shape for those arms is:
+   reg <= i_cnt_en ? <shift value> : i_wb_en ? <writeback value> : reg;
+and in the W=4 arm additionally verify i22's shift source is i26 (a past
+conversion had it self-holding behind an i_ctrl[3] mux, which is wrong).
+Compare each arm against prepared.sv before trusting it.
+
+- Incremental fev.eqy (gold reads feved.sv) needs NO match lines for this
+  step when you rename nothing.
+- Do not change [strategy] sections. Keep `use sby` everywhere.
