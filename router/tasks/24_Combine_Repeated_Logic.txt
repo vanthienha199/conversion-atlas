@@ -10,6 +10,8 @@ Reduce the source by expressing each repeated pattern once:
 - Do not change behavior, interfaces, signal names visible to FEV, or the set of supported configurations. Do not remove comments that carry information; move them to the macro definition when the logic moves there.
 - Readability matters: a reader should be able to see the shared pattern in the macro and the differences in the instantiation table. Prefer one clear macro over a clever one.
 
-Report the line count of `wip.tlv` before and after this task in `tracker.md`, along with which patterns you factored and how many instances each one covers.
+The goal is less text, not just fewer lines. A macro whose calls each carry a long list of arguments has only moved the text around; keep parameter lists short (a handful of arguments) and let the macro body hold everything the instances share.
+
+Report the line count and the character count of `wip.tlv` before and after this task in `tracker.md`, along with which patterns you factored and how many instances each one covers.
 
 Be sure all changes for this task have been completed fully and that `./scripts/fev.sh` passes before reviewing `instructions/desktop_agent_instructions.md` and running `./scripts/get_task.py next`. If the task was not fully successful, wrap-up, update the user, and stop working, awaiting user guidance.
