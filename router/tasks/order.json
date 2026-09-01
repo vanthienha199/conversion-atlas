@@ -94,5 +94,9 @@
  [
   "Prepare Tracker for Handoff",
   "tasks/23_Prepare_Tracker_for_Handoff.txt"
+ ],
+ [
+  "Combine Repeated Logic",
+  "tasks/24_Combine_Repeated_Logic.txt"
  ]
 ]

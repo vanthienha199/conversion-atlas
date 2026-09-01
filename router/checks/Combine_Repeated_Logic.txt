@@ -1,0 +1,5 @@
+- At least one family of near-identical statements from the BEFORE file has been replaced by an M5 macro, TLV macro, or M5 loop, and that family is no longer written out instance by instance in the AFTER file.
+- The AFTER file is materially shorter than the BEFORE file in lines of logic (excluding blank lines and comments). A change that only renames things, reorders lines, or adds a macro while leaving every original instance in place does not satisfy this task.
+- Every configuration branch present in the BEFORE file is still present and still handled in the AFTER file; no branch was merged away or dropped.
+- Signal names, interfaces, and the module structure are unchanged apart from the logic moving into macro bodies.
+- tracker.md reports the before and after line counts and names the factored patterns.
